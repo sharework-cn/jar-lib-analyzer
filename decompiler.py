@@ -87,15 +87,20 @@ class JarComparisonTool:
             else:
                 raise Exception("Unable to read file with any encoding format")
             
-            # Set column names - support both old and new formats
+            # Set column names - support multiple formats
             if len(self.server_df.columns) == 6:
                 # Old format: ip, port, username, password, service_name, jar_dir
                 self.server_df.columns = ['ip', 'port', 'username', 'password', 'service_name', 'jar_dir']
                 # Add empty class_dir column for backward compatibility
                 self.server_df['class_dir'] = ''
             elif len(self.server_df.columns) == 7:
-                # New format: ip, port, username, password, service_name, jar_dir, class_dir
-                self.server_df.columns = ['ip', 'port', 'username', 'password', 'service_name', 'jar_dir', 'class_dir']
+                # Check if it's the custom format by looking at the actual column names
+                if 'server_name' in str(self.server_df.columns[4]).lower():
+                    # Custom format: ip, port, user, pswd, server_name, jar_path, classes_path
+                    self.server_df.columns = ['ip', 'port', 'username', 'password', 'service_name', 'jar_dir', 'class_dir']
+                else:
+                    # New format: ip, port, username, password, service_name, jar_dir, class_dir
+                    self.server_df.columns = ['ip', 'port', 'username', 'password', 'service_name', 'jar_dir', 'class_dir']
             else:
                 raise Exception(f"Invalid server information file format. Expected 6 or 7 columns, got {len(self.server_df.columns)}")
             
@@ -164,11 +169,15 @@ class JarComparisonTool:
     
     def get_server_info(self, ip_address, service_name):
         """Get server connection information based on IP address and service name"""
-        # Find server info by both IP and service name
-        server_info = self.server_df[
-            (self.server_df['ip'] == ip_address) & 
-            (self.server_df['service_name'] == service_name)
-        ]
+        # If IP address is 'local', match by service name only
+        if ip_address == 'local':
+            server_info = self.server_df[self.server_df['service_name'] == service_name]
+        else:
+            # Find server info by both IP and service name
+            server_info = self.server_df[
+                (self.server_df['ip'] == ip_address) & 
+                (self.server_df['service_name'] == service_name)
+            ]
         
         if server_info.empty:
             return None

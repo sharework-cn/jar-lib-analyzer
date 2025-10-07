@@ -64,15 +64,24 @@ python analyzer.py --server-list-file work/uat/lib_info.csv --internal-prefix-fi
 
 **2. Server Connection Information File (--server-list-file mode)**
 - File format: CSV file
-- Column definition: `ip_address,port,username,password,service_name,jar_file_directory`
-- Example content:
+- **Format 1 (6 columns)**: `ip_address,port,username,password,service_name,jar_file_directory`
+- **Format 2 (7 columns)**: `ip_address,port,username,password,service_name,jar_file_directory,class_file_directory`
+- Example content (6 columns):
 ```csv
 ip_address,port,username,password,service_name,jar_file_directory
 10.176.24.135,22,root,password,ui,/opt/apps/ui/lib
 10.176.24.156,22,root,password,query,/opt/apps/query/lib
 local_service,22,,,local_service,/path/to/local/jar/directory
 ```
-- **Local Directory Support**: If `username` and `password` are empty, the tool will treat `jar_file_directory` as a local directory path
+- Example content (7 columns):
+```csv
+ip_address,port,username,password,service_name,jar_file_directory,class_file_directory
+10.176.24.135,22,root,password,ui,/opt/apps/ui/lib,/opt/apps/ui/classes
+10.176.24.156,22,root,password,query,/opt/apps/query/lib,/opt/apps/query/classes
+local_service,22,,,local_service,/path/to/local/jar/directory,/path/to/local/classes/directory
+```
+- **Local Directory Support**: If `username` and `password` are empty, the tool will treat directories as local paths
+- **Class File Support**: When using 7-column format, `class_file_directory` is used for class file locations
 - Encoding support: UTF-8-SIG, UTF-8, GBK, GB2312, Latin-1
 
 **3. Internal Dependency Prefix File (--internal-prefix-file)**
@@ -123,8 +132,16 @@ python decompiler.py my_app_commons-session-2.1.0.jar --analysis-csv work/output
 
 **2. Server Connection Information File (--server-list-file)**
 - File format: CSV file
-- Column definition: `ip_address,port,username,password,service_name,jar_file_directory,class_file_directory`
-- Example content:
+- **Format 1 (6 columns)**: `ip_address,port,username,password,service_name,jar_file_directory`
+- **Format 2 (7 columns)**: `ip_address,port,username,password,service_name,jar_file_directory,class_file_directory`
+- Example content (6 columns):
+```csv
+ip_address,port,username,password,service_name,jar_file_directory
+10.0.0.135,22,root,password,ui,/opt/apps/ui/WEB-INF/lib
+10.0.0.156,22,root,password,query,/opt/apps/query/WEB-INF/lib
+local_service,22,,,local_service,/path/to/local/jar/directory
+```
+- Example content (7 columns):
 ```csv
 ip_address,port,username,password,service_name,jar_file_directory,class_file_directory
 10.0.0.135,22,root,password,ui,/opt/apps/ui/WEB-INF/lib,/opt/apps/ui/WEB-INF/classes
@@ -134,6 +151,7 @@ local_service,22,,,local_service,/path/to/local/jar/directory,/path/to/local/cla
 - **Local Directory Support**: If `username` and `password` are empty, the tool will treat directories as local paths
 - **JAR Files**: Use `jar_file_directory` for JAR file locations
 - **Class Files**: Use `class_file_directory` for class file locations (base directory without package directories)
+- **Backward Compatibility**: 6-column format is supported for backward compatibility
 - Encoding support: UTF-8-SIG, UTF-8, GBK, GB2312, Latin-1
 
 **Output Directory Naming Rules:**
