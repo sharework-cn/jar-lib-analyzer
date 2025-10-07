@@ -105,6 +105,7 @@ Fetch specified JAR or class files from multiple servers, decompile them for sub
 
 **Features:**
 - Support both JAR and class file decompilation
+- Support single file decompilation and service-based batch decompilation
 - Locate file positions from analysis results
 - Support multi-threaded parallel downloads
 - Use CFR tool for decompilation
@@ -118,6 +119,9 @@ python decompiler.py my_app_commons-session-2.1.0.jar --analysis-csv work/output
 
 # Class file decompilation
 python decompiler.py com.example.MyClass --analysis-csv work/output/classes_analysis_report.csv --server-list-file work/uat/lib_info.csv --file-type class
+
+# Service-based decompilation (decompile all non-third-party files for a service)
+python decompiler.py service_name --analysis-csv work/output/classes_analysis_report.csv --server-list-file work/uat/lib_info.csv --file-type class
 
 # Specify custom output directory
 python decompiler.py my_app_commons-session-2.1.0.jar --analysis-csv work/output/jar_analysis_report.csv --server-list-file work/uat/lib_info.csv --file-type jar --output-dir work/custom_output
@@ -154,6 +158,13 @@ local_service,22,,,local_service,/path/to/local/jar/directory,/path/to/local/cla
 - **Backward Compatibility**: 6-column format is supported for backward compatibility
 - Encoding support: UTF-8-SIG, UTF-8, GBK, GB2312, Latin-1
 
+**Service-Based Decompilation:**
+When the `file_name` parameter is a service name (without file extensions), the tool will:
+- Automatically identify all non-third-party files belonging to that service
+- Download and decompile all identified files in batch
+- Maintain the same directory structure as single file decompilation
+- Only process files marked as internal dependencies (Third_Party_Dependency = 'No')
+
 **Output Directory Naming Rules:**
 - Default directory name: `work/{file_name_without_ext}` (automatically remove .jar/.class extension)
 - Example: `my_app_commons-session-2.1.0.jar` → `work/my_app_commons-session-2.1.0`
@@ -171,12 +182,11 @@ work/my_app_commons-session-2.1.0/                    # Main output directory
 │   ├── query@10.176.24.156/
 │   │   └── my_app_commons-session-2.1.0.jar
 │   └── ...
-└── jar-decompile/                                  # JAR decompilation results
-    └── my_app_commons-session-2.1.0/               # JAR name subdirectory
-        └── 20230321-ui@10.0.0.135/               # Decompilation result directory
-            ├── com/                                       # Decompiled Java source code
-            │   └── (Java class files)
-            └── summary.txt                                # Decompilation summary
+└── my_app_commons-session-2.1.0/                   # JAR name subdirectory
+    └── 20230321-ui@10.0.0.135/               # Decompilation result directory
+        ├── com/                                       # Decompiled Java source code
+        │   └── (Java class files)
+        └── summary.txt                                # Decompilation summary
 ```
 
 **Class File Decompilation:**
@@ -184,12 +194,11 @@ work/my_app_commons-session-2.1.0/                    # Main output directory
 work/com.example.MyClass/                            # Main output directory
 ├── _class/                                         # Class file storage directory
 │   ├── ui@10.0.0.135/                    # Organized by service_name@IP_address
-│   │   └── com.example.MyClass                     # Original class file
+│   │   └── com.example.MyClass.class               # Original class file
 │   └── ...
-└── class-decompile/                                # Class decompilation results
-    └── com.example.MyClass/                        # Class name subdirectory
-        └── 20230321-ui@10.0.0.135/               # Decompilation result directory
-            └── MyClass.java                               # Decompiled Java source code
+└── com.example.MyClass/                            # Class name subdirectory
+    └── 20230321-ui@10.0.0.135/               # Decompilation result directory
+        └── MyClass.java                               # Decompiled Java source code
 ```
 
 **Directory Naming Rules Details:**

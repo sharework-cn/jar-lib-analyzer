@@ -39,11 +39,11 @@ class JarComparisonTool:
         if self.file_type == "jar":
             # Create JAR file storage directory
             self.file_dir = os.path.join(self.output_dir, "_jar")
-            self.decompile_dir = os.path.join(self.output_dir, "jar-decompile")
+            self.decompile_dir = self.output_dir  # Direct output to main directory
         else:  # class
             # Create class file storage directory
             self.file_dir = os.path.join(self.output_dir, "_class")
-            self.decompile_dir = os.path.join(self.output_dir, "class-decompile")
+            self.decompile_dir = self.output_dir  # Direct output to main directory
         
         os.makedirs(self.file_dir, exist_ok=True)
         os.makedirs(self.decompile_dir, exist_ok=True)
@@ -112,6 +112,110 @@ class JarComparisonTool:
     
     def find_file_locations(self):
         """Find file locations from analysis results"""
+        # Check if file_name is a service name (contains no dots or contains service-like patterns)
+        if self._is_service_name(self.file_name):
+            return self._find_service_files()
+        else:
+            return self._find_single_file_locations()
+    
+    def _is_service_name(self, name):
+        """Check if the given name is a service name rather than a file name"""
+        # If it contains dots and looks like a class name or JAR name, it's a file
+        if '.' in name and (name.endswith('.jar') or name.endswith('.class') or '/' in name):
+            return False
+        
+        # If it's a simple name without dots, it's likely a service name
+        if '.' not in name:
+            return True
+        
+        # If it contains dots but doesn't look like a file, it might be a service name
+        # Check if it matches any service patterns in the analysis data
+        for col in self.analysis_df.columns:
+            if col.endswith('_Size'):
+                service_key = col.replace('_Size', '')
+                service_name = self._extract_service_name_from_key(service_key)
+                if service_name == name:
+                    return True
+        
+        return False
+    
+    def _extract_service_name_from_key(self, service_key):
+        """Extract service name from service key"""
+        if '_' in service_key:
+            parts = service_key.split('_')
+            # Find IP address part (last 4 parts)
+            if len(parts) >= 5:
+                # Check if last 4 parts form a valid IP address
+                ip_parts = parts[-4:]
+                if all(part.isdigit() and 0 <= int(part) <= 255 for part in ip_parts):
+                    service_name = '_'.join(parts[:-4])
+                else:
+                    # No valid IP address found, treat as service name only
+                    service_name = service_key
+            else:
+                # No valid IP address found, treat as service name only
+                service_name = service_key
+        else:
+            # No underscore, treat as service name only
+            service_name = service_key
+        
+        # Restore dots in service name (replace _POINT_ back to .)
+        service_name = service_name.replace('_POINT_', '.')
+        return service_name
+    
+    def _find_service_files(self):
+        """Find all non-third-party files for a specific service"""
+        print(f"Looking for all non-third-party {self.file_type.upper()} files for service '{self.file_name}'...")
+        
+        locations = []
+        target_service = self.file_name
+        
+        # Find all files that belong to this service and are not third-party dependencies
+        for _, row in self.analysis_df.iterrows():
+            file_name = row['JAR_Filename']
+            is_third_party = row.get('Third_Party_Dependency', 'No') == 'Yes'
+            
+            # Skip third-party dependencies
+            if is_third_party:
+                continue
+            
+            # Check if this file exists in the target service
+            for col in self.analysis_df.columns:
+                if col.endswith('_Size') and not pd.isna(row[col]) and row[col] != '':
+                    service_key = col.replace('_Size', '')
+                    service_name = self._extract_service_name_from_key(service_key)
+                    
+                    if service_name == target_service:
+                        # Extract IP address
+                        if '_' in service_key:
+                            parts = service_key.split('_')
+                            if len(parts) >= 5:
+                                ip_parts = parts[-4:]
+                                if all(part.isdigit() and 0 <= int(part) <= 255 for part in ip_parts):
+                                    ip_address = '.'.join(ip_parts)
+                                else:
+                                    ip_address = 'local'
+                            else:
+                                ip_address = 'local'
+                        else:
+                            ip_address = 'local'
+                        
+                        locations.append({
+                            'file_name': file_name,
+                            'service_name': service_name,
+                            'ip_address': ip_address,
+                            'service_key': service_key
+                        })
+                        break
+        
+        print(f"Found {len(locations)} non-third-party {self.file_type.upper()} files for service '{target_service}'")
+        for loc in locations:
+            print(f"  - {loc['file_name']} @ {loc['service_name']}@{loc['ip_address']}")
+        
+        return locations
+    
+    def _find_single_file_locations(self):
+        """Find locations for a single file (original behavior)"""
         print(f"Looking for {self.file_type.upper()} file '{self.file_name}' locations...")
         
         # Find row containing this file
@@ -129,33 +233,24 @@ class JarComparisonTool:
             if col.endswith('_Size') and not pd.isna(file_info[col]) and file_info[col] != '':
                 # Extract service name and IP address
                 service_key = col.replace('_Size', '')
-                # Service name format: service_name_IP_address or just service_name
+                service_name = self._extract_service_name_from_key(service_key)
+                
+                # Extract IP address
                 if '_' in service_key:
                     parts = service_key.split('_')
-                    # Find IP address part (last 4 parts)
                     if len(parts) >= 5:
-                        # Check if last 4 parts form a valid IP address
                         ip_parts = parts[-4:]
                         if all(part.isdigit() and 0 <= int(part) <= 255 for part in ip_parts):
-                            service_name = '_'.join(parts[:-4])
                             ip_address = '.'.join(ip_parts)
                         else:
-                            # No valid IP address found, treat as service name only
-                            service_name = service_key
                             ip_address = 'local'
                     else:
-                        # No valid IP address found, treat as service name only
-                        service_name = service_key
                         ip_address = 'local'
                 else:
-                    # No underscore, treat as service name only
-                    service_name = service_key
                     ip_address = 'local'
                 
-                # Restore dots in service name (replace _POINT_ back to .)
-                service_name = service_name.replace('_POINT_', '.')
-                
                 locations.append({
+                    'file_name': self.file_name,
                     'service_name': service_name,
                     'ip_address': ip_address,
                     'service_key': service_key
@@ -189,25 +284,27 @@ class JarComparisonTool:
         service_name = location['service_name']
         ip_address = location['ip_address']
         service_key = location['service_key']
+        file_name = location.get('file_name', self.file_name)
         
         # Check if server info has username and password
         if pd.isna(server_info['username']) or pd.isna(server_info['password']) or server_info['username'] == '' or server_info['password'] == '':
-            print(f"Copying {self.file_type.upper()} file from local directory for {service_name}...")
+            print(f"Copying {self.file_type.upper()} file '{file_name}' from local directory for {service_name}...")
             return self.copy_file_from_local(location, server_info)
         else:
-            print(f"Downloading {self.file_type.upper()} file from {ip_address} for {service_name}...")
+            print(f"Downloading {self.file_type.upper()} file '{file_name}' from {ip_address} for {service_name}...")
             return self.download_file_from_server(location, server_info)
     
     def copy_file_from_local(self, location, server_info):
         """Copy file from local directory"""
         service_name = location['service_name']
         ip_address = location['ip_address']
+        file_name = location.get('file_name', self.file_name)
         
         try:
             # Build local file path
             if self.file_type == "class":
                 # Convert class name to file path
-                class_file_path = self.file_name.replace('.', '/') + '.class'
+                class_file_path = file_name.replace('.', '/') + '.class'
                 
                 # Check if class_dir is specified
                 if pd.notna(server_info['class_dir']) and server_info['class_dir'] != '':
@@ -233,7 +330,7 @@ class JarComparisonTool:
                         local_file_path = possible_paths[0]
             else:
                 # For JAR files, use filename directly
-                local_file_path = os.path.join(server_info['jar_dir'], self.file_name)
+                local_file_path = os.path.join(server_info['jar_dir'], file_name)
             
             if not os.path.exists(local_file_path):
                 print(f"  Local {self.file_type.upper()} file does not exist: {local_file_path}")
@@ -244,7 +341,11 @@ class JarComparisonTool:
             os.makedirs(local_service_dir, exist_ok=True)
             
             # Copy file
-            target_file_path = os.path.join(local_service_dir, self.file_name)
+            if self.file_type == "class":
+                # For class files, ensure .class extension is preserved
+                target_file_path = os.path.join(local_service_dir, file_name + '.class')
+            else:
+                target_file_path = os.path.join(local_service_dir, file_name)
             shutil.copy2(local_file_path, target_file_path)
             
             print(f"  Successfully copied: {target_file_path}")
@@ -258,6 +359,7 @@ class JarComparisonTool:
         """Download file from server via SSH/SCP"""
         service_name = location['service_name']
         ip_address = location['ip_address']
+        file_name = location.get('file_name', self.file_name)
         
         try:
             # Create SSH connection
@@ -274,14 +376,18 @@ class JarComparisonTool:
             )
             
             # Build remote file path (use forward slashes as this is Linux path)
-            remote_file_path = server_info['jar_dir'].replace('\\', '/') + '/' + self.file_name
+            remote_file_path = server_info['jar_dir'].replace('\\', '/') + '/' + file_name
             
             # Create local directory
             local_service_dir = os.path.join(self.file_dir, f"{service_name}@{ip_address}")
             os.makedirs(local_service_dir, exist_ok=True)
             
             # Download file
-            local_file_path = os.path.join(local_service_dir, self.file_name)
+            if self.file_type == "class":
+                # For class files, ensure .class extension is preserved
+                local_file_path = os.path.join(local_service_dir, file_name + '.class')
+            else:
+                local_file_path = os.path.join(local_service_dir, file_name)
             
             with SCPClient(ssh.get_transport()) as scp:
                 scp.get(remote_file_path, local_file_path)
@@ -295,9 +401,12 @@ class JarComparisonTool:
             print(f"  Download failed: {e}")
             return None
     
-    def decompile_file(self, file_path, service_name, ip_address, file_info=None):
+    def decompile_file(self, file_path, service_name, ip_address, file_info=None, file_name=None):
         """Decompile JAR or class file"""
-        print(f"Decompiling {self.file_type.upper()} file for {service_name}@{ip_address}...")
+        if file_name is None:
+            file_name = self.file_name
+        
+        print(f"Decompiling {self.file_type.upper()} file '{file_name}' for {service_name}@{ip_address}...")
         
         try:
             # Create decompile output directory
@@ -310,11 +419,11 @@ class JarComparisonTool:
             
             if self.file_type == "jar":
                 # For JAR files, create subdirectory with JAR filename
-                jar_name_without_ext = self.file_name.replace('.jar', '')
+                jar_name_without_ext = file_name.replace('.jar', '')
                 decompile_dir = os.path.join(self.decompile_dir, jar_name_without_ext, f"{date_str}-{service_name}@{ip_address}")
             else:
                 # For class files, use class name as subdirectory
-                class_name = self.file_name.replace('.class', '').replace('/', '.')
+                class_name = file_name.replace('.class', '').replace('/', '.')
                 decompile_dir = os.path.join(self.decompile_dir, class_name, f"{date_str}-{service_name}@{ip_address}")
             
             os.makedirs(decompile_dir, exist_ok=True)
@@ -373,15 +482,18 @@ class JarComparisonTool:
         # Decompile all downloaded files
         print("Starting decompilation...")
         for file_path, location, file_info in successful_downloads:
-            self.decompile_file(file_path, location['service_name'], location['ip_address'], file_info)
+            file_name = location.get('file_name', self.file_name)
+            self.decompile_file(file_path, location['service_name'], location['ip_address'], file_info, file_name)
         
         print("Processing completed!")
     
     def get_file_info_from_analysis(self, location):
         """Get file information from analysis results"""
         try:
+            file_name = location.get('file_name', self.file_name)
+            
             # Find row containing this file
-            file_row = self.analysis_df[self.analysis_df['JAR_Filename'] == self.file_name]
+            file_row = self.analysis_df[self.analysis_df['JAR_Filename'] == file_name]
             
             if file_row.empty:
                 return None
@@ -409,7 +521,7 @@ class JarComparisonTool:
                             pass
                 
                 return {
-                    'filename': self.file_name,
+                    'filename': file_name,
                     'size': size,
                     'modify_date': modify_date,
                     'date_str': date_str
@@ -487,10 +599,10 @@ def main():
         print("Directory structure:")
         if args.file_type == "jar":
             print("  - _jar/ : Original JAR files")
-            print("  - jar-decompile/{jar_name}/{timestamp}-{service}@{ip}/ : JAR decompilation results")
+            print("  - {jar_name}/{timestamp}-{service}@{ip}/ : JAR decompilation results")
         else:
             print("  - _class/ : Original class files")
-            print("  - class-decompile/{class_name}/{timestamp}-{service}@{ip}/ : Class decompilation results")
+            print("  - {class_name}/{timestamp}-{service}@{ip}/ : Class decompilation results")
     else:
         print("\nTool execution failed!")
         sys.exit(1)

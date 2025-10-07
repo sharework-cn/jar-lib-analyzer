@@ -390,6 +390,10 @@ class JarAnalyzer:
     
     def is_third_party_dependency(self, jar_filename):
         """Check if JAR file is a third-party dependency"""
+        # Class files are always considered internal dependencies
+        if jar_filename.endswith('.class'):
+            return False
+        
         # Check if JAR filename starts with any internal prefix
         for prefix in self.internal_prefixes:
             if jar_filename.lower().startswith(prefix.lower()):
