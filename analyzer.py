@@ -153,6 +153,7 @@ class JarAnalyzer:
         self.parser = JarInfoParser(classes_dir=classes_dir)
         self.services_data = {}
         self.all_jars = set()
+        self.class_display_names = set()  # display_name set which originated from .class files
         self.server_df = None
         
         # Load internal dependency prefixes
@@ -323,6 +324,8 @@ class JarAnalyzer:
             # Collect all JAR/class files
             for jar_info in jar_files:
                 self.all_jars.add(jar_info['display_name'])
+                if jar_info.get('filename', '').endswith('.class'):
+                    self.class_display_names.add(jar_info['display_name'])
             
             # Show progress percentage
             progress = (idx / total_servers) * 100
@@ -357,6 +360,8 @@ class JarAnalyzer:
             # Collect all JAR/class files
             for jar_info in jar_files:
                 self.all_jars.add(jar_info['display_name'])
+                if jar_info.get('filename', '').endswith('.class'):
+                    self.class_display_names.add(jar_info['display_name'])
             
             # Show progress percentage
             progress = (idx / total_files) * 100
@@ -481,13 +486,20 @@ class JarAnalyzer:
         
         print(f"Starting to generate report, need to process {total_jars} JAR/class files...")
         
+        def _is_class_display_name(name: str) -> bool:
+            """Check if a display name originated from a .class file (based on collected set)."""
+            return name in self.class_display_names
+
         for idx, jar_name in enumerate(sorted(self.all_jars), 1):
             # Find latest version information for this JAR
             latest_date, latest_size = self.find_latest_version(jar_name)
             
+            # For class entries, always mark as internal dependency (No)
+            third_party = 'No' if _is_class_display_name(jar_name) else ('Yes' if self.is_third_party_dependency(jar_name) else 'No')
+
             row_data = {
                 'JAR_Filename': jar_name,
-                'Third_Party_Dependency': 'Yes' if self.is_third_party_dependency(jar_name) else 'No'
+                'Third_Party_Dependency': third_party
             }
             
             # Add three columns for each service: size, last update date, is latest
