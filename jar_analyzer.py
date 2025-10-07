@@ -16,10 +16,11 @@ from scp import SCPClient
 
 
 class JarInfoParser:
-    """JAR file information parser"""
+    """JAR/Class file information parser"""
     
-    def __init__(self):
-        self.jar_pattern = re.compile(r'-rw[a-z-]*\s+\d+\s+\w+\s+\w+\s+(\d+)\s+(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})\s+((?:.+?)\.jar)$')
+    def __init__(self, classes_dir="classes"):
+        self.jar_pattern = re.compile(r'-rw[a-z-]*\s+\d+\s+\w+\s+\w+\s+(\d+)\s+(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}(?::\d{2})?)\s+(.+\.(?:jar|class))$')
+        self.classes_dir = classes_dir
     
     def parse_file(self, file_path):
         """Parse content of a single file"""
@@ -38,14 +39,28 @@ class JarInfoParser:
                             date_str = match.group(2)
                             filename = match.group(3)
                             
-                            # Parse date time
+                            # Parse date time (try both formats: with and without seconds)
+                            modify_date = None
                             try:
+                                # Try format with seconds first
                                 modify_date = datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S')
                             except ValueError:
-                                modify_date = None
+                                try:
+                                    # Try format without seconds
+                                    modify_date = datetime.strptime(date_str, '%Y-%m-%d %H:%M')
+                                except ValueError:
+                                    modify_date = None
+                            
+                            # Extract class name for .class files
+                            display_name = filename
+                            if filename.endswith('.class'):
+                                class_name = self.extract_class_name(filename)
+                                if class_name:
+                                    display_name = class_name
                             
                             jar_files.append({
                                 'filename': filename,
+                                'display_name': display_name,
                                 'size': size,
                                 'modify_date': modify_date,
                                 'date_str': date_str
@@ -57,6 +72,33 @@ class JarInfoParser:
             print(f"Error: Unable to read file {file_path} with any encoding format")
             
         return jar_files
+    
+    def extract_class_name(self, filepath):
+        """Extract class full name from .class file path"""
+        # Find classes directory in the path
+        classes_index = filepath.find(f'/{self.classes_dir}/')
+        if classes_index == -1:
+            # Try without leading slash
+            classes_index = filepath.find(self.classes_dir + '/')
+            if classes_index == -1:
+                return None
+        
+        # Extract path after classes directory
+        if filepath.find(f'/{self.classes_dir}/') >= 0:
+            # Skip the classes directory part (with leading slash)
+            class_path = filepath[classes_index + len(f'/{self.classes_dir}/'):]
+        else:
+            # Skip the classes directory part (without leading slash)
+            class_path = filepath[classes_index + len(self.classes_dir + '/'):]
+        
+        # Remove .class extension
+        if class_path.endswith('.class'):
+            class_path = class_path[:-6]  # Remove '.class'
+        
+        # Replace / with . to get class full name
+        class_name = class_path.replace('/', '.')
+        
+        return class_name if class_name else None
     
     def parse_ssh_output(self, output):
         """Parse SSH command output"""
@@ -70,14 +112,28 @@ class JarInfoParser:
                 date_str = match.group(2)
                 filename = match.group(3)
                 
-                # Parse date time
+                # Parse date time (try both formats: with and without seconds)
+                modify_date = None
                 try:
+                    # Try format with seconds first
                     modify_date = datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S')
                 except ValueError:
-                    modify_date = None
+                    try:
+                        # Try format without seconds
+                        modify_date = datetime.strptime(date_str, '%Y-%m-%d %H:%M')
+                    except ValueError:
+                        modify_date = None
+                
+                # Extract class name for .class files
+                display_name = filename
+                if filename.endswith('.class'):
+                    class_name = self.extract_class_name(filename)
+                    if class_name:
+                        display_name = class_name
                 
                 jar_files.append({
                     'filename': filename,
+                    'display_name': display_name,
                     'size': size,
                     'modify_date': modify_date,
                     'date_str': date_str
@@ -89,11 +145,12 @@ class JarInfoParser:
 class JarAnalyzer:
     """JAR file analyzer"""
     
-    def __init__(self, data_dir=None, server_list_file=None, internal_prefix_file=None):
+    def __init__(self, data_dir=None, server_list_file=None, internal_prefix_file=None, classes_dir="classes"):
         self.data_dir = data_dir
         self.server_list_file = server_list_file
         self.internal_prefix_file = internal_prefix_file
-        self.parser = JarInfoParser()
+        self.classes_dir = classes_dir
+        self.parser = JarInfoParser(classes_dir=classes_dir)
         self.services_data = {}
         self.all_jars = set()
         self.server_df = None
@@ -106,17 +163,21 @@ class JarAnalyzer:
         # Remove .txt extension
         name_without_ext = filename[:-4]
         
-        # Find the part after the first underscore as service name
-        # IP address format is usually x.x.x.x_service_name
-        # We need to find the first underscore after IP address
+        # Find IP address pattern (x.x.x.x) in the filename
+        # IP address format is usually at the beginning: x.x.x.x_service_name
         parts = name_without_ext.split('_')
         if len(parts) >= 2:
-            # First part is IP address, remaining parts form service name
-            ip_address = parts[0]
-            service_name = '_'.join(parts[1:])
-            # Replace dots in IP address with underscores, format: service_name_IP_address
-            ip_with_underscore = ip_address.replace('.', '_')
-            full_service_name = f"{service_name}_{ip_with_underscore}"
+            # Check if first part looks like an IP address (contains dots)
+            if '.' in parts[0]:
+                # First part is IP address, remaining parts form service name
+                ip_address = parts[0]
+                service_name = '_'.join(parts[1:])
+                # Replace dots in IP address with underscores, format: service_name_IP_address
+                ip_with_underscore = ip_address.replace('.', '_')
+                full_service_name = f"{service_name}_{ip_with_underscore}"
+            else:
+                # No IP address pattern found, use service name only
+                full_service_name = name_without_ext
         else:
             # If no underscore, use filename directly
             full_service_name = name_without_ext
@@ -259,15 +320,15 @@ class JarAnalyzer:
             
             self.services_data[service_name] = jar_files
             
-            # Collect all jar files
+            # Collect all JAR/class files
             for jar_info in jar_files:
-                self.all_jars.add(jar_info['filename'])
+                self.all_jars.add(jar_info['display_name'])
             
             # Show progress percentage
             progress = (idx / total_servers) * 100
-            print(f"    Progress: {progress:.1f}% - Found {len(jar_files)} JAR files")
+            print(f"    Progress: {progress:.1f}% - Found {len(jar_files)} JAR/class files")
         
-        print(f"\nData loading completed! Found {len(self.all_jars)} JAR files in total, distributed across {len(self.services_data)} services")
+        print(f"\nData loading completed! Found {len(self.all_jars)} JAR/class files in total, distributed across {len(self.services_data)} services")
         return True
     
     def load_data_from_files(self):
@@ -293,15 +354,15 @@ class JarAnalyzer:
             
             self.services_data[service_name] = jar_files
             
-            # Collect all jar files
+            # Collect all JAR/class files
             for jar_info in jar_files:
-                self.all_jars.add(jar_info['filename'])
+                self.all_jars.add(jar_info['display_name'])
             
             # Show progress percentage
             progress = (idx / total_files) * 100
-            print(f"    Progress: {progress:.1f}% - Found {len(jar_files)} JAR files")
+            print(f"    Progress: {progress:.1f}% - Found {len(jar_files)} JAR/class files")
         
-        print(f"\nData loading completed! Found {len(self.all_jars)} JAR files in total, distributed across {len(self.services_data)} services")
+        print(f"\nData loading completed! Found {len(self.all_jars)} JAR/class files in total, distributed across {len(self.services_data)} services")
         return True
     
     def find_latest_version(self, jar_name):
@@ -312,7 +373,7 @@ class JarAnalyzer:
         # Traverse all services to find the latest modification date
         for service_jars in self.services_data.values():
             for jar_info in service_jars:
-                if jar_info['filename'] == jar_name:
+                if jar_info['display_name'] == jar_name:
                     if jar_info['modify_date'] and (latest_date is None or jar_info['modify_date'] > latest_date):
                         latest_date = jar_info['modify_date']
                         latest_size = jar_info['size']
@@ -376,8 +437,16 @@ class JarAnalyzer:
                         modify_time = stat.st_mtime
                         modify_date = datetime.fromtimestamp(modify_time)
                         
+                        # Extract class name for .class files
+                        display_name = filename
+                        if filename.endswith('.class'):
+                            class_name = self.parser.extract_class_name(filename)
+                            if class_name:
+                                display_name = class_name
+                        
                         jar_files.append({
                             'filename': filename,
+                            'display_name': display_name,
                             'size': size,
                             'modify_date': modify_date,
                             'date_str': modify_date.strftime('%Y-%m-%d %H:%M:%S')
@@ -386,7 +455,7 @@ class JarAnalyzer:
                         print(f"  Error reading file {filename}: {e}")
                         continue
             
-            print(f"  Found {len(jar_files)} JAR files in local directory")
+            print(f"  Found {len(jar_files)} JAR/class files in local directory")
             return jar_files
             
         except Exception as e:
@@ -406,7 +475,7 @@ class JarAnalyzer:
         report_data = []
         total_jars = len(self.all_jars)
         
-        print(f"Starting to generate report, need to process {total_jars} JAR files...")
+        print(f"Starting to generate report, need to process {total_jars} JAR/class files...")
         
         for idx, jar_name in enumerate(sorted(self.all_jars), 1):
             # Find latest version information for this JAR
@@ -424,7 +493,7 @@ class JarAnalyzer:
                 # Find this JAR in the service
                 jar_found = None
                 for jar_info in service_jars:
-                    if jar_info['filename'] == jar_name:
+                    if jar_info['display_name'] == jar_name:
                         jar_found = jar_info
                         break
                 
@@ -450,7 +519,7 @@ class JarAnalyzer:
             
             report_data.append(row_data)
             
-            # Show progress every 100 JAR files
+            # Show progress every 100 JAR/class files
             if idx % 100 == 0 or idx == total_jars:
                 progress = (idx / total_jars) * 100
                 print(f"    Report generation progress: {progress:.1f}% ({idx}/{total_jars})")
@@ -479,7 +548,7 @@ class CSVGenerator:
         report_df.to_csv(output_file, index=False, encoding='utf-8-sig')
         
         print(f"CSV report generated: {output_file}")
-        print(f"Total analyzed {len(report_df)} JAR files")
+        print(f"Total analyzed {len(report_df)} JAR/class files")
         print(f"Report contains {len(report_df.columns)} columns")
         return True
 
@@ -495,6 +564,8 @@ def main():
                         help='Internal dependency prefix file, one prefix per line')
     parser.add_argument('--output-file', default='work/output/jar_analysis_report.csv',
                         help='Output CSV filename (default: work/output/jar_analysis_report.csv)')
+    parser.add_argument('--classes-dir', default='classes',
+                        help='Classes directory name for .class file analysis (default: classes)')
     
     args = parser.parse_args()
     
@@ -516,7 +587,7 @@ def main():
     print()
     
     # Create analyzer
-    analyzer = JarAnalyzer(data_dir=args.data_dir, server_list_file=args.server_list_file, internal_prefix_file=args.internal_prefix_file)
+    analyzer = JarAnalyzer(data_dir=args.data_dir, server_list_file=args.server_list_file, internal_prefix_file=args.internal_prefix_file, classes_dir=args.classes_dir)
     
     # Load data
     if not analyzer.load_all_data():
