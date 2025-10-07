@@ -66,6 +66,7 @@ python analyzer.py --server-list-file work/uat/lib_info.csv --internal-prefix-fi
 - File format: CSV file
 - **Format 1 (6 columns)**: `ip_address,port,username,password,service_name,jar_file_directory`
 - **Format 2 (7 columns)**: `ip_address,port,username,password,service_name,jar_file_directory,class_file_directory`
+- **Format 3 (9 columns)**: `ip_address,port,username,password,service_name,server_base_path,jar_file_directory,class_file_directory,source_path`
 - Example content (6 columns):
 ```csv
 ip_address,port,username,password,service_name,jar_file_directory
@@ -80,8 +81,17 @@ ip_address,port,username,password,service_name,jar_file_directory,class_file_dir
 10.176.24.156,22,root,password,query,/opt/apps/query/lib,/opt/apps/query/classes
 local_service,22,,,local_service,/path/to/local/jar/directory,/path/to/local/classes/directory
 ```
+- Example content (9 columns with variable support):
+```csv
+ip_address,port,username,password,service_name,server_base_path,jar_file_directory,class_file_directory,source_path
+10.176.24.135,22,root,password,ui,/app/apprun/tomcat_server/webapps/ui/WEB-INF,work/prod/lib-download/{service_name}{server_base_path}/lib,work/prod/classes-download/{service_name}{server_base_path}/classes,tsm_2.0/tsm_ui
+10.176.24.156,22,root,password,query,/app/apprun/tomcat_server/webapps/query/WEB-INF,work/prod/lib-download/{service_name}{server_base_path}/lib,work/prod/classes-download/{service_name}{server_base_path}/classes,tsm_2.0/tsm_query
+local_service,22,,,local_service,/app/apprun/tomcat_server/webapps/local/WEB-INF,work/prod/lib-download/{service_name}{server_base_path}/lib,work/prod/classes-download/{service_name}{server_base_path}/classes,local_source
+```
 - **Local Directory Support**: If `username` and `password` are empty, the tool will treat directories as local paths
-- **Class File Support**: When using 7-column format, `class_file_directory` is used for class file locations
+- **Class File Support**: When using 7-column or 9-column format, `class_file_directory` is used for class file locations
+- **Variable Replacement**: In 9-column format, `{service_name}` and `{server_base_path}` variables in paths are automatically replaced with actual values
+- **Backward Compatibility**: 6-column and 7-column formats are supported for backward compatibility
 - Encoding support: UTF-8-SIG, UTF-8, GBK, GB2312, Latin-1
 
 **3. Internal Dependency Prefix File (--internal-prefix-file)**
@@ -138,6 +148,7 @@ python decompiler.py my_app_commons-session-2.1.0.jar --analysis-csv work/output
 - File format: CSV file
 - **Format 1 (6 columns)**: `ip_address,port,username,password,service_name,jar_file_directory`
 - **Format 2 (7 columns)**: `ip_address,port,username,password,service_name,jar_file_directory,class_file_directory`
+- **Format 3 (9 columns)**: `ip_address,port,username,password,service_name,server_base_path,jar_file_directory,class_file_directory,source_path`
 - Example content (6 columns):
 ```csv
 ip_address,port,username,password,service_name,jar_file_directory
@@ -152,10 +163,18 @@ ip_address,port,username,password,service_name,jar_file_directory,class_file_dir
 10.0.0.156,22,root,password,query,/opt/apps/query/WEB-INF/lib,/opt/apps/query/WEB-INF/classes
 local_service,22,,,local_service,/path/to/local/jar/directory,/path/to/local/classes/directory
 ```
+- Example content (9 columns with variable support):
+```csv
+ip_address,port,username,password,service_name,server_base_path,jar_file_directory,class_file_directory,source_path
+10.0.0.135,22,root,password,ui,/app/apprun/tomcat_server/webapps/ui/WEB-INF,work/prod/lib-download/{service_name}{server_base_path}/lib,work/prod/classes-download/{service_name}{server_base_path}/classes,tsm_2.0/tsm_ui
+10.0.0.156,22,root,password,query,/app/apprun/tomcat_server/webapps/query/WEB-INF,work/prod/lib-download/{service_name}{server_base_path}/lib,work/prod/classes-download/{service_name}{server_base_path}/classes,tsm_2.0/tsm_query
+local_service,22,,,local_service,/app/apprun/tomcat_server/webapps/local/WEB-INF,work/prod/lib-download/{service_name}{server_base_path}/lib,work/prod/classes-download/{service_name}{server_base_path}/classes,local_source
+```
 - **Local Directory Support**: If `username` and `password` are empty, the tool will treat directories as local paths
 - **JAR Files**: Use `jar_file_directory` for JAR file locations
 - **Class Files**: Use `class_file_directory` for class file locations (base directory without package directories)
-- **Backward Compatibility**: 6-column format is supported for backward compatibility
+- **Variable Replacement**: In 9-column format, `{service_name}` and `{server_base_path}` variables in paths are automatically replaced with actual values
+- **Backward Compatibility**: 6-column and 7-column formats are supported for backward compatibility
 - Encoding support: UTF-8-SIG, UTF-8, GBK, GB2312, Latin-1
 
 **Service-Based Decompilation:**

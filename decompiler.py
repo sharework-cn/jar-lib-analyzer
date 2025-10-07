@@ -91,18 +91,29 @@ class JarComparisonTool:
             if len(self.server_df.columns) == 6:
                 # Old format: ip, port, username, password, service_name, jar_dir
                 self.server_df.columns = ['ip', 'port', 'username', 'password', 'service_name', 'jar_dir']
-                # Add empty class_dir column for backward compatibility
+                # Add empty columns for backward compatibility
+                self.server_df['server_base_path'] = ''
                 self.server_df['class_dir'] = ''
+                self.server_df['source_path'] = ''
             elif len(self.server_df.columns) == 7:
                 # Check if it's the custom format by looking at the actual column names
                 if 'server_name' in str(self.server_df.columns[4]).lower():
                     # Custom format: ip, port, user, pswd, server_name, jar_path, classes_path
                     self.server_df.columns = ['ip', 'port', 'username', 'password', 'service_name', 'jar_dir', 'class_dir']
+                    # Add empty columns for backward compatibility
+                    self.server_df['server_base_path'] = ''
+                    self.server_df['source_path'] = ''
                 else:
                     # New format: ip, port, username, password, service_name, jar_dir, class_dir
                     self.server_df.columns = ['ip', 'port', 'username', 'password', 'service_name', 'jar_dir', 'class_dir']
+                    # Add empty columns for backward compatibility
+                    self.server_df['server_base_path'] = ''
+                    self.server_df['source_path'] = ''
+            elif len(self.server_df.columns) == 9:
+                # New format: ip, port, username, password, service_name, server_base_path, jar_path, classes_path, source_path
+                self.server_df.columns = ['ip', 'port', 'username', 'password', 'service_name', 'server_base_path', 'jar_dir', 'class_dir', 'source_path']
             else:
-                raise Exception(f"Invalid server information file format. Expected 6 or 7 columns, got {len(self.server_df.columns)}")
+                raise Exception(f"Invalid server information file format. Expected 6, 7, or 9 columns, got {len(self.server_df.columns)}")
             
             print(f"Successfully loaded server information, total {len(self.server_df)} servers")
             return True
@@ -279,6 +290,17 @@ class JarComparisonTool:
         
         return server_info.iloc[0]
     
+    def _replace_path_variables(self, path_template, service_name, server_base_path):
+        """Replace {service_name} and {server_base_path} variables in path template"""
+        if pd.isna(path_template) or path_template == '':
+            return ''
+        
+        # Replace variables
+        path = path_template.replace('{service_name}', service_name)
+        path = path.replace('{server_base_path}', server_base_path)
+        
+        return path
+    
     def download_file(self, location, server_info):
         """Download file from server or copy from local directory"""
         service_name = location['service_name']
@@ -301,21 +323,26 @@ class JarComparisonTool:
         file_name = location.get('file_name', self.file_name)
         
         try:
+            # Get server_base_path for variable replacement
+            server_base_path = server_info.get('server_base_path', '')
+            
             # Build local file path
             if self.file_type == "class":
                 # Convert class name to file path
                 class_file_path = file_name.replace('.', '/') + '.class'
                 
-                # Check if class_dir is specified
+                # Check if class_dir is specified and replace variables
                 if pd.notna(server_info['class_dir']) and server_info['class_dir'] != '':
-                    # Use specified class directory
-                    local_file_path = os.path.join(server_info['class_dir'], class_file_path)
+                    # Use specified class directory with variable replacement
+                    class_dir = self._replace_path_variables(server_info['class_dir'], service_name, server_base_path)
+                    local_file_path = os.path.join(class_dir, class_file_path)
                 else:
                     # Try different possible paths for class files (backward compatibility)
+                    jar_dir = self._replace_path_variables(server_info['jar_dir'], service_name, server_base_path)
                     possible_paths = [
-                        os.path.join(server_info['jar_dir'], class_file_path),  # Direct path
-                        os.path.join(server_info['jar_dir'], 'classes', class_file_path),  # With classes dir
-                        os.path.join(server_info['jar_dir'], 'WEB-INF', 'classes', class_file_path),  # With WEB-INF/classes
+                        os.path.join(jar_dir, class_file_path),  # Direct path
+                        os.path.join(jar_dir, 'classes', class_file_path),  # With classes dir
+                        os.path.join(jar_dir, 'WEB-INF', 'classes', class_file_path),  # With WEB-INF/classes
                     ]
                     
                     # Find the first existing path
@@ -329,8 +356,9 @@ class JarComparisonTool:
                         # If no path exists, use the first one as default
                         local_file_path = possible_paths[0]
             else:
-                # For JAR files, use filename directly
-                local_file_path = os.path.join(server_info['jar_dir'], file_name)
+                # For JAR files, replace variables in jar_dir and use filename directly
+                jar_dir = self._replace_path_variables(server_info['jar_dir'], service_name, server_base_path)
+                local_file_path = os.path.join(jar_dir, file_name)
             
             if not os.path.exists(local_file_path):
                 print(f"  Local {self.file_type.upper()} file does not exist: {local_file_path}")
@@ -376,7 +404,9 @@ class JarComparisonTool:
             )
             
             # Build remote file path (use forward slashes as this is Linux path)
-            remote_file_path = server_info['jar_dir'].replace('\\', '/') + '/' + file_name
+            server_base_path = server_info.get('server_base_path', '')
+            jar_dir = self._replace_path_variables(server_info['jar_dir'], service_name, server_base_path)
+            remote_file_path = jar_dir.replace('\\', '/') + '/' + file_name
             
             # Create local directory
             local_service_dir = os.path.join(self.file_dir, f"{service_name}@{ip_address}")
