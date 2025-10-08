@@ -13,13 +13,13 @@ def init_database():
     """Initialize database with V2 schema"""
     
     # 读取SQL文件
-    sql_file = 'schema_v2.sql'
+    sql_file = 'database/schema_v2.sql'
     if not os.path.exists(sql_file):
         print(f"Error: SQL file {sql_file} not found")
         return False
     
     # 读取缺失表的SQL文件
-    missing_tables_file = 'create_missing_tables.sql'
+    missing_tables_file = 'database/create_missing_tables.sql'
     if os.path.exists(missing_tables_file):
         with open(missing_tables_file, 'r', encoding='utf-8') as f:
             missing_sql = f.read()

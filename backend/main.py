@@ -71,6 +71,7 @@ class JarFile(Base):
     is_third_party = Column(Boolean, default=False)
     is_latest = Column(Boolean, default=False)
     file_path = Column(String(500))
+    decompile_path = Column(String(500))
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
@@ -87,44 +88,58 @@ class ClassFile(Base):
     file_size = Column(BigInteger)
     last_modified = Column(DateTime)
     file_path = Column(String(500))
-    java_source_file_id = Column(Integer, ForeignKey("java_source_files.id"), nullable=True)
+    decompile_path = Column(String(500))
+    java_source_file_version_id = Column(Integer, ForeignKey("java_source_file_versions.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # Relationships
     service = relationship("Service", back_populates="class_files")
-    java_source_file = relationship("JavaSourceFile", back_populates="class_files")
+    java_source_file_version = relationship("JavaSourceFileVersion", back_populates="class_files")
 
 class JavaSourceFile(Base):
     __tablename__ = "java_source_files"
     
     id = Column(Integer, primary_key=True, index=True)
     class_full_name = Column(String(500), index=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    differences = relationship("SourceDifference", back_populates="java_source_file")
+    versions = relationship("JavaSourceFileVersion", back_populates="java_source_file", cascade="all, delete-orphan")
+
+class JavaSourceFileVersion(Base):
+    __tablename__ = "java_source_file_versions"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    java_source_file_id = Column(Integer, ForeignKey("java_source_files.id"))
+    version = Column(String(50), index=True)
     file_path = Column(String(500))
     file_content = Column(Text)
     file_size = Column(BigInteger)
-    last_modified = Column(DateTime)
-    file_hash = Column(String(64))
+    last_modified = Column(DateTime, index=True)
+    file_hash = Column(String(64), index=True)
     line_count = Column(Integer)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # Relationships
-    class_files = relationship("ClassFile", back_populates="java_source_file")
-    jar_files = relationship("JavaSourceInJarFile", back_populates="java_source_file")
-    differences = relationship("SourceDifference", back_populates="java_source_file")
+    java_source_file = relationship("JavaSourceFile", back_populates="versions")
+    class_files = relationship("ClassFile", back_populates="java_source_file_version")
+    jar_files = relationship("JavaSourceInJarFile", back_populates="java_source_file_version")
 
 class JavaSourceInJarFile(Base):
     __tablename__ = "java_source_in_jar_files"
     
     id = Column(Integer, primary_key=True, index=True)
     jar_file_id = Column(Integer, ForeignKey("jar_files.id"))
-    java_source_file_id = Column(Integer, ForeignKey("java_source_files.id"))
+    java_source_file_version_id = Column(Integer, ForeignKey("java_source_file_versions.id"))
     created_at = Column(DateTime, default=datetime.utcnow)
     
     # Relationships
     jar_file = relationship("JarFile", back_populates="java_source_files")
-    java_source_file = relationship("JavaSourceFile", back_populates="jar_files")
+    java_source_file_version = relationship("JavaSourceFileVersion", back_populates="jar_files")
 
 class SourceDifference(Base):
     __tablename__ = "source_differences"

@@ -143,6 +143,11 @@ class ClassDecompiler:
             
             if result.returncode == 0:
                 logger.info(f"Decompiled class: {class_file.class_full_name} -> {decompile_dir}")
+                # Update decompile_path in database
+                class_file.decompile_path = os.path.join(
+                    service.class_decompile_output_dir,
+                    class_name
+                ).replace('\\', '/')
                 return decompile_dir
             else:
                 logger.error(f"Decompilation failed for {class_file.class_full_name}: {result.stderr}")

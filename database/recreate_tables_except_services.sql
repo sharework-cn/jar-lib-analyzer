@@ -1,40 +1,15 @@
--- Source Code Difference Analysis System Database Schema V2
+-- Recreate all tables except services table
 -- MySQL 8.0+
--- 基于数据库的Java库分析系统
 
--- Use existing database
+USE jal;
 
--- 删除旧表（如果存在）
+-- Drop all tables except services
 DROP TABLE IF EXISTS source_differences;
-DROP TABLE IF EXISTS java_source_files;
-DROP TABLE IF EXISTS jar_files;
-DROP TABLE IF EXISTS services;
-DROP TABLE IF EXISTS class_files;
-DROP TABLE IF EXISTS java_source_file_versions;
 DROP TABLE IF EXISTS java_source_in_jar_files;
-
--- Services table - 服务信息表
-CREATE TABLE services (
-    id INT PRIMARY KEY AUTO_INCREMENT,
-    service_name VARCHAR(100) NOT NULL,
-    environment VARCHAR(50) NOT NULL DEFAULT 'production',
-    ip_address VARCHAR(15),
-    port INT,
-    username VARCHAR(50),
-    password VARCHAR(100),
-    server_base_path VARCHAR(500),
-    jar_path VARCHAR(500),
-    classes_path VARCHAR(500),
-    source_path VARCHAR(500),
-    jar_info_file_path VARCHAR(500) NOT NULL COMMENT 'JAR信息文件路径',
-    class_info_file_path VARCHAR(500) NOT NULL COMMENT 'Class信息文件路径',
-    jar_decompile_output_dir VARCHAR(500) NOT NULL COMMENT 'JAR反编译输出目录',
-    class_decompile_output_dir VARCHAR(500) NOT NULL COMMENT 'Class反编译输出目录',
-    description TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_service_environment (service_name, environment)
-);
+DROP TABLE IF EXISTS java_source_file_versions;
+DROP TABLE IF EXISTS java_source_files;
+DROP TABLE IF EXISTS class_files;
+DROP TABLE IF EXISTS jar_files;
 
 -- JAR files table - JAR文件信息表
 CREATE TABLE jar_files (
@@ -46,6 +21,7 @@ CREATE TABLE jar_files (
     is_third_party BOOLEAN DEFAULT FALSE,
     is_latest BOOLEAN DEFAULT FALSE,
     file_path VARCHAR(500) COMMENT 'JAR文件本地路径',
+    decompile_path VARCHAR(500) COMMENT 'JAR反编译输出目录路径',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (service_id) REFERENCES services(id) ON DELETE CASCADE,
@@ -65,7 +41,6 @@ CREATE TABLE class_files (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (service_id) REFERENCES services(id) ON DELETE CASCADE,
-    FOREIGN KEY (java_source_file_version_id) REFERENCES java_source_file_versions(id) ON DELETE SET NULL,
     UNIQUE KEY uk_service_class (service_id, class_full_name)
 );
 
@@ -107,13 +82,11 @@ CREATE TABLE java_source_in_jar_files (
     UNIQUE KEY uk_jar_source_version (jar_file_id, java_source_file_version_id)
 );
 
-
 -- Source differences table - 源码差异表
 CREATE TABLE source_differences (
     id INT PRIMARY KEY AUTO_INCREMENT,
     service_id INT NOT NULL,
     java_source_file_version_id INT NOT NULL,
-    compares_to_java_source_file_version_id INT NOT NULL,
     difference_type ENUM('added', 'deleted', 'modified') NOT NULL,
     line_number INT,
     old_content TEXT,
@@ -121,24 +94,25 @@ CREATE TABLE source_differences (
     diff_context TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (service_id) REFERENCES services(id) ON DELETE CASCADE,
-    FOREIGN KEY (java_source_file_version_id) REFERENCES java_source_file_versions(id) ON DELETE CASCADE,
-    FOREIGN KEY (compares_to_java_source_file_version_id) REFERENCES java_source_file_versions(id) ON DELETE CASCADE
+    FOREIGN KEY (java_source_file_version_id) REFERENCES java_source_file_versions(id) ON DELETE CASCADE
 );
 
+-- Add foreign key constraint for class_files
+ALTER TABLE class_files 
+ADD CONSTRAINT class_files_ibfk_2 
+FOREIGN KEY (java_source_file_version_id) REFERENCES java_source_file_versions(id) ON DELETE SET NULL;
+
 -- Performance optimization indexes
-CREATE INDEX idx_services_name ON services(service_name);
-CREATE INDEX idx_services_environment ON services(environment);
 CREATE INDEX idx_jar_files_service ON jar_files(service_id);
 CREATE INDEX idx_jar_files_latest ON jar_files(is_latest);
 CREATE INDEX idx_jar_files_third_party ON jar_files(is_third_party);
 CREATE INDEX idx_class_files_service ON class_files(service_id);
 CREATE INDEX idx_class_files_class_name ON class_files(class_full_name);
--- Note: java_source_files.class_full_name already has UNIQUE KEY uk_class_full_name
--- Note: java_source_file_versions.file_hash already has INDEX idx_file_hash
 CREATE INDEX idx_jar_source_jar ON java_source_in_jar_files(jar_file_id);
 CREATE INDEX idx_jar_source_version ON java_source_in_jar_files(java_source_file_version_id);
 CREATE INDEX idx_class_files_source_version ON class_files(java_source_file_version_id);
 CREATE INDEX idx_differences_service ON source_differences(service_id);
+CREATE INDEX idx_differences_type ON source_differences(difference_type);
 
 -- Full-text search indexes for content search
 CREATE FULLTEXT INDEX idx_java_source_versions_content ON java_source_file_versions(file_content);
