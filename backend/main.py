@@ -38,7 +38,8 @@ class Service(Base):
     __tablename__ = "services"
     
     id = Column(Integer, primary_key=True, index=True)
-    service_name = Column(String(100), unique=True, index=True)
+    service_name = Column(String(100), index=True)
+    environment = Column(String(50), default='production')
     ip_address = Column(String(15))
     port = Column(Integer)
     username = Column(String(50))
@@ -47,13 +48,17 @@ class Service(Base):
     jar_path = Column(String(500))
     classes_path = Column(String(500))
     source_path = Column(String(500))
+    jar_info_file_path = Column(String(500))
+    class_info_file_path = Column(String(500))
+    jar_decompile_output_dir = Column(String(500))
+    class_decompile_output_dir = Column(String(500))
     description = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # Relationships
     jar_files = relationship("JarFile", back_populates="service")
-    java_source_files = relationship("JavaSourceFile", back_populates="service")
+    class_files = relationship("ClassFile", back_populates="service")
 
 class JarFile(Base):
     __tablename__ = "jar_files"
@@ -65,33 +70,61 @@ class JarFile(Base):
     last_modified = Column(DateTime)
     is_third_party = Column(Boolean, default=False)
     is_latest = Column(Boolean, default=False)
-    decompile_path = Column(String(500))
+    file_path = Column(String(500))
     created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # Relationships
     service = relationship("Service", back_populates="jar_files")
-    java_source_files = relationship("JavaSourceFile", back_populates="jar_file")
+    java_source_files = relationship("JavaSourceInJarFile", back_populates="jar_file")
+
+class ClassFile(Base):
+    __tablename__ = "class_files"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    service_id = Column(Integer, ForeignKey("services.id"))
+    class_full_name = Column(String(500))
+    file_size = Column(BigInteger)
+    last_modified = Column(DateTime)
+    file_path = Column(String(500))
+    java_source_file_id = Column(Integer, ForeignKey("java_source_files.id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    service = relationship("Service", back_populates="class_files")
+    java_source_file = relationship("JavaSourceFile", back_populates="class_files")
 
 class JavaSourceFile(Base):
     __tablename__ = "java_source_files"
     
     id = Column(Integer, primary_key=True, index=True)
-    service_id = Column(Integer, ForeignKey("services.id"))
-    jar_file_id = Column(Integer, ForeignKey("jar_files.id"), nullable=True)
     class_full_name = Column(String(500), index=True)
     file_path = Column(String(500))
     file_content = Column(Text)
     file_size = Column(BigInteger)
     last_modified = Column(DateTime)
-    is_latest = Column(Boolean, default=False, index=True)
     file_hash = Column(String(64))
     line_count = Column(Integer)
     created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # Relationships
-    service = relationship("Service", back_populates="java_source_files")
-    jar_file = relationship("JarFile", back_populates="java_source_files")
+    class_files = relationship("ClassFile", back_populates="java_source_file")
+    jar_files = relationship("JavaSourceInJarFile", back_populates="java_source_file")
     differences = relationship("SourceDifference", back_populates="java_source_file")
+
+class JavaSourceInJarFile(Base):
+    __tablename__ = "java_source_in_jar_files"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    jar_file_id = Column(Integer, ForeignKey("jar_files.id"))
+    java_source_file_id = Column(Integer, ForeignKey("java_source_files.id"))
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    jar_file = relationship("JarFile", back_populates="java_source_files")
+    java_source_file = relationship("JavaSourceFile", back_populates="jar_files")
 
 class SourceDifference(Base):
     __tablename__ = "source_differences"

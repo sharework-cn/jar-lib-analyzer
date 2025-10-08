@@ -365,7 +365,7 @@ class JarComparisonTool:
                 return None
             
             # Create local directory
-            local_service_dir = os.path.join(self.file_dir, f"{service_name}@{ip_address}")
+            local_service_dir = os.path.join(self.file_dir, f"{service_name}@{ip_address}").replace('\\', '/')
             os.makedirs(local_service_dir, exist_ok=True)
             
             # Copy file
@@ -409,7 +409,7 @@ class JarComparisonTool:
             remote_file_path = jar_dir.replace('\\', '/') + '/' + file_name
             
             # Create local directory
-            local_service_dir = os.path.join(self.file_dir, f"{service_name}@{ip_address}")
+            local_service_dir = os.path.join(self.file_dir, f"{service_name}@{ip_address}").replace('\\', '/')
             os.makedirs(local_service_dir, exist_ok=True)
             
             # Download file
@@ -450,11 +450,11 @@ class JarComparisonTool:
             if self.file_type == "jar":
                 # For JAR files, create subdirectory with JAR filename
                 jar_name_without_ext = file_name.replace('.jar', '')
-                decompile_dir = os.path.join(self.decompile_dir, jar_name_without_ext, f"{date_str}-{service_name}@{ip_address}")
+                decompile_dir = os.path.join(self.decompile_dir, jar_name_without_ext, f"{date_str}-{service_name}@{ip_address}").replace('\\', '/')
             else:
                 # For class files, use class name as subdirectory
                 class_name = file_name.replace('.class', '').replace('/', '.')
-                decompile_dir = os.path.join(self.decompile_dir, class_name, f"{date_str}-{service_name}@{ip_address}")
+                decompile_dir = os.path.join(self.decompile_dir, class_name, f"{date_str}-{service_name}@{ip_address}").replace('\\', '/')
             
             os.makedirs(decompile_dir, exist_ok=True)
             
