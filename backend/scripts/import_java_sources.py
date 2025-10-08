@@ -153,11 +153,30 @@ class JavaSourceImporter:
             else:
                 base_walk_dir = jar_decompile_dir
             
-            # Walk through decompiled directory
+            # First, count total directories to process for progress tracking
+            total_dirs = 0
+            for root, dirs, files in os.walk(base_walk_dir):
+                if '_jar' in root:
+                    continue
+                if any(f.endswith('.java') for f in files):
+                    total_dirs += 1
+            
+            logger.info(f"Found {total_dirs} directories with Java files in JAR decompile directory")
+            
+            # Walk through decompiled directory with progress tracking
+            processed_dirs = 0
             for root, dirs, files in os.walk(base_walk_dir):
                 # Skip _jar directories
                 if '_jar' in root:
                     continue
+                
+                # Skip directories without Java files
+                if not any(f.endswith('.java') for f in files):
+                    continue
+                
+                processed_dirs += 1
+                progress = (processed_dirs / total_dirs) * 100 if total_dirs > 0 else 0
+                logger.info(f"Processing JAR directory [{processed_dirs}/{total_dirs}] ({progress:.1f}%): {os.path.basename(root)}")
                 
                 for file in files:
                     if file.endswith('.java'):
@@ -308,11 +327,30 @@ class JavaSourceImporter:
             imported_count = 0
             updated_count = 0
             
-            # Walk through decompiled directory
+            # First, count total directories to process for progress tracking
+            total_dirs = 0
+            for root, dirs, files in os.walk(class_decompile_dir):
+                if '_class' in root:
+                    continue
+                if any(f.endswith('.java') for f in files):
+                    total_dirs += 1
+            
+            logger.info(f"Found {total_dirs} directories with Java files in class decompile directory")
+            
+            # Walk through decompiled directory with progress tracking
+            processed_dirs = 0
             for root, dirs, files in os.walk(class_decompile_dir):
                 # Skip _class directories
                 if '_class' in root:
                     continue
+                
+                # Skip directories without Java files
+                if not any(f.endswith('.java') for f in files):
+                    continue
+                
+                processed_dirs += 1
+                progress = (processed_dirs / total_dirs) * 100 if total_dirs > 0 else 0
+                logger.info(f"Processing class directory [{processed_dirs}/{total_dirs}] ({progress:.1f}%): {os.path.basename(root)}")
                 
                 for file in files:
                     if file.endswith('.java'):
@@ -522,11 +560,30 @@ class JavaSourceImporter:
         imported_count = 0
         updated_count = 0
         
-        # Walk through decompiled directory
+        # First, count total directories to process for progress tracking
+        total_dirs = 0
+        for root, dirs, files in os.walk(jar_dir):
+            if '_jar' in root:
+                continue
+            if any(f.endswith('.java') for f in files):
+                total_dirs += 1
+        
+        logger.info(f"Found {total_dirs} directories with Java files in JAR decompile directory")
+        
+        # Process directories with progress tracking
+        processed_dirs = 0
         for root, dirs, files in os.walk(jar_dir):
             # Skip _jar directories
             if '_jar' in root:
                 continue
+            
+            # Skip directories without Java files
+            if not any(f.endswith('.java') for f in files):
+                continue
+            
+            processed_dirs += 1
+            progress = (processed_dirs / total_dirs) * 100 if total_dirs > 0 else 0
+            logger.info(f"Processing JAR directory [{processed_dirs}/{total_dirs}] ({progress:.1f}%): {os.path.basename(root)}")
             
             for file in files:
                 if file.endswith('.java'):
@@ -575,11 +632,30 @@ class JavaSourceImporter:
         imported_count = 0
         updated_count = 0
         
-        # Walk through decompiled directory
+        # First, count total directories to process for progress tracking
+        total_dirs = 0
+        for root, dirs, files in os.walk(class_dir):
+            if '_class' in root:
+                continue
+            if any(f.endswith('.java') for f in files):
+                total_dirs += 1
+        
+        logger.info(f"Found {total_dirs} directories with Java files in class decompile directory")
+        
+        # Process directories with progress tracking
+        processed_dirs = 0
         for root, dirs, files in os.walk(class_dir):
             # Skip _class directories
             if '_class' in root:
                 continue
+            
+            # Skip directories without Java files
+            if not any(f.endswith('.java') for f in files):
+                continue
+            
+            processed_dirs += 1
+            progress = (processed_dirs / total_dirs) * 100 if total_dirs > 0 else 0
+            logger.info(f"Processing class directory [{processed_dirs}/{total_dirs}] ({progress:.1f}%): {os.path.basename(root)}")
             
             for file in files:
                 if file.endswith('.java'):
