@@ -232,9 +232,11 @@ class JavaSourceImporter:
                                 logger.debug(f"Created Java source file: {class_full_name}")
                             
                             # Create new version for this source file
+                            # Normalize file path to use Linux-style forward slashes
+                            normalized_file_path = file_path.replace('\\', '/')
                             java_source_version = JavaSourceFileVersion(
                                 java_source_file_id=existing_source.id,
-                                file_path=file_path,
+                                file_path=normalized_file_path,
                                 file_content=file_content,
                                 file_size=file_size,
                                 last_modified=last_modified,
@@ -374,9 +376,11 @@ class JavaSourceImporter:
                                 logger.debug(f"Created Java source file: {class_full_name}")
                             
                             # Create new version for this source file
+                            # Normalize file path to use Linux-style forward slashes
+                            normalized_file_path = file_path.replace('\\', '/')
                             java_source_version = JavaSourceFileVersion(
                                 java_source_file_id=existing_source.id,
-                                file_path=file_path,
+                                file_path=normalized_file_path,
                                 file_content=file_content,
                                 file_size=file_size,
                                 last_modified=last_modified,
@@ -431,16 +435,48 @@ class JavaSourceImporter:
             services = db.query(Service).all()
             total_services = len(services)
             
-            for idx, service in enumerate(services, 1):
-                logger.info(f"[{idx}/{total_services}] Processing service: {service.service_name} ({service.environment})")
+            if total_services == 0:
+                logger.warning("No services found in database")
+                return
+            
+            # Check if all services have the same jar_decompile_output_dir and class_decompile_output_dir
+            jar_dirs = set()
+            class_dirs = set()
+            
+            for service in services:
+                if service.jar_decompile_output_dir:
+                    jar_dirs.add(service.jar_decompile_output_dir)
+                if service.class_decompile_output_dir:
+                    class_dirs.add(service.class_decompile_output_dir)
+            
+            logger.info(f"Found {len(jar_dirs)} unique JAR decompile directories")
+            logger.info(f"Found {len(class_dirs)} unique class decompile directories")
+            
+            # If all services have the same directories, use optimized import
+            if len(jar_dirs) == 1 and len(class_dirs) == 1:
+                jar_dir = list(jar_dirs)[0]
+                class_dir = list(class_dirs)[0]
                 
-                success = self.import_java_sources_for_service(service.service_name, service.environment)
-                if not success:
-                    logger.error(f"Failed to import Java source files for service: {service.service_name}")
+                logger.info(f"All services use the same directories:")
+                logger.info(f"  JAR decompile dir: {jar_dir}")
+                logger.info(f"  Class decompile dir: {class_dir}")
                 
-                # Show progress
-                progress = (idx / total_services) * 100
-                logger.info(f"Progress: {progress:.1f}%")
+                # Import from unified directories
+                self._import_from_unified_directories(jar_dir, class_dir, services, db)
+            else:
+                logger.info("Services have different directories, processing individually")
+                
+                # Process each service individually
+                for idx, service in enumerate(services, 1):
+                    logger.info(f"[{idx}/{total_services}] Processing service: {service.service_name} ({service.environment})")
+                    
+                    success = self.import_java_sources_for_service(service.service_name, service.environment)
+                    if not success:
+                        logger.error(f"Failed to import Java source files for service: {service.service_name}")
+                    
+                    # Show progress
+                    progress = (idx / total_services) * 100
+                    logger.info(f"Progress: {progress:.1f}%")
             
             logger.info("Java source files import completed for all services")
             
@@ -448,6 +484,226 @@ class JavaSourceImporter:
             logger.error(f"Error importing Java source files for all services: {e}")
         finally:
             db.close()
+    
+    def _import_from_unified_directories(self, jar_dir, class_dir, services, db):
+        """Import from unified directories when all services use the same paths"""
+        logger.info("Importing from unified directories")
+        
+        # Get all JAR files for all services
+        service_ids = [s.id for s in services]
+        jar_files = {jf.jar_name: jf for jf in db.query(JarFile).filter(JarFile.service_id.in_(service_ids)).all()}
+        class_files = {cf.class_full_name: cf for cf in db.query(ClassFile).filter(ClassFile.service_id.in_(service_ids)).all()}
+        
+        imported_count = 0
+        updated_count = 0
+        
+        # Import from JAR decompile directory
+        if os.path.exists(jar_dir):
+            logger.info(f"Processing JAR decompile directory: {jar_dir}")
+            jar_imported, jar_updated = self._process_unified_jar_directory(jar_dir, jar_files, services, db)
+            imported_count += jar_imported
+            updated_count += jar_updated
+        else:
+            logger.warning(f"JAR decompile directory not found: {jar_dir}")
+        
+        # Import from class decompile directory
+        if os.path.exists(class_dir):
+            logger.info(f"Processing class decompile directory: {class_dir}")
+            class_imported, class_updated = self._process_unified_class_directory(class_dir, class_files, services, db)
+            imported_count += class_imported
+            updated_count += class_updated
+        else:
+            logger.warning(f"Class decompile directory not found: {class_dir}")
+        
+        logger.info(f"Unified import completed: {imported_count} new files, {updated_count} versions created")
+    
+    def _process_unified_jar_directory(self, jar_dir, jar_files, services, db):
+        """Process unified JAR decompile directory - import all files without service name filtering"""
+        imported_count = 0
+        updated_count = 0
+        
+        # Walk through decompiled directory
+        for root, dirs, files in os.walk(jar_dir):
+            # Skip _jar directories
+            if '_jar' in root:
+                continue
+            
+            for file in files:
+                if file.endswith('.java'):
+                    file_path = os.path.join(root, file)
+                    
+                    try:
+                        # Use long path prefix for Windows compatibility
+                        long_path = self.get_long_path_prefix(file_path)
+                        
+                        # Extract class information from path
+                        class_info = self.extract_class_info_from_path(file_path, jar_dir, True)
+                        if not class_info:
+                            continue
+                        
+                        service_name = class_info['service_name']
+                        class_full_name = class_info['class_full_name']
+                        jar_name = class_info['jar_name']
+                        
+                        # Find corresponding service (but don't skip if not found in all-services mode)
+                        service = next((s for s in services if s.service_name == service_name), None)
+                        
+                        # Find corresponding JAR file across all services
+                        jar_file = None
+                        for jf in jar_files.values():
+                            db_jar_name_without_ext = jf.jar_name.replace('.jar', '')
+                            if db_jar_name_without_ext == jar_name:
+                                jar_file = jf
+                                break
+                        
+                        if not jar_file:
+                            logger.warning(f"JAR file not found for class {class_full_name}: {jar_name}")
+                            continue
+                        
+                        # Process the file (same logic as individual service import)
+                        success = self._process_java_file(file_path, long_path, class_full_name, jar_file, db)
+                        if success:
+                            updated_count += 1
+                        
+                    except Exception as e:
+                        logger.error(f"Error processing Java file {file_path}: {e}")
+        
+        return imported_count, updated_count
+    
+    def _process_unified_class_directory(self, class_dir, class_files, services, db):
+        """Process unified class decompile directory - import all files without service name filtering"""
+        imported_count = 0
+        updated_count = 0
+        
+        # Walk through decompiled directory
+        for root, dirs, files in os.walk(class_dir):
+            # Skip _class directories
+            if '_class' in root:
+                continue
+            
+            for file in files:
+                if file.endswith('.java'):
+                    file_path = os.path.join(root, file)
+                    
+                    try:
+                        # Use long path prefix for Windows compatibility
+                        long_path = self.get_long_path_prefix(file_path)
+                        
+                        # Extract class information from path
+                        class_info = self.extract_class_info_from_path(file_path, class_dir, False)
+                        if not class_info:
+                            continue
+                        
+                        service_name = class_info['service_name']
+                        class_full_name = class_info['class_full_name']
+                        
+                        # Find corresponding service (but don't skip if not found in all-services mode)
+                        service = next((s for s in services if s.service_name == service_name), None)
+                        
+                        # Find corresponding class file across all services
+                        class_file = None
+                        for cf in class_files.values():
+                            if cf.class_full_name == class_full_name:
+                                class_file = cf
+                                break
+                        
+                        if not class_file:
+                            logger.warning(f"Class file not found for class: {class_full_name}")
+                            continue
+                        
+                        # Process the file (same logic as individual service import)
+                        success = self._process_java_file(file_path, long_path, class_full_name, None, db, class_file)
+                        if success:
+                            updated_count += 1
+                        
+                    except Exception as e:
+                        logger.error(f"Error processing Java file {file_path}: {e}")
+        
+        return imported_count, updated_count
+    
+    def _process_java_file(self, file_path, long_path, class_full_name, jar_file, db, class_file=None):
+        """Process a single Java file and create version"""
+        try:
+            # Read file content using long path
+            try:
+                with open(long_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    file_content = f.read()
+            except (OSError, IOError) as e:
+                logger.warning(f"Failed to read file with long path, trying original path: {e}")
+                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    file_content = f.read()
+            
+            # Calculate file properties
+            try:
+                file_size = os.path.getsize(long_path)
+                mtime = os.path.getmtime(long_path)
+            except (OSError, IOError):
+                file_size = os.path.getsize(file_path)
+                mtime = os.path.getmtime(file_path)
+            
+            file_hash = hashlib.sha256(file_content.encode('utf-8')).hexdigest()
+            line_count = len(file_content.splitlines())
+            last_modified = datetime.fromtimestamp(mtime)
+            
+            # Check if Java source file already exists
+            existing_source = db.query(JavaSourceFile).filter(
+                JavaSourceFile.class_full_name == class_full_name
+            ).first()
+            
+            if not existing_source:
+                # Create new Java source file
+                existing_source = JavaSourceFile(
+                    class_full_name=class_full_name
+                )
+                db.add(existing_source)
+                db.flush()  # Get the ID
+            
+            # Create new version for this source file
+            # Normalize file path to use Linux-style forward slashes
+            normalized_file_path = file_path.replace('\\', '/')
+            java_source_version = JavaSourceFileVersion(
+                java_source_file_id=existing_source.id,
+                file_path=normalized_file_path,
+                file_content=file_content,
+                file_size=file_size,
+                last_modified=last_modified,
+                file_hash=file_hash,
+                line_count=line_count
+            )
+            db.add(java_source_version)
+            db.flush()  # Get the ID
+            
+            # Create mappings based on file type
+            if jar_file:
+                # JAR file mapping
+                existing_mapping = db.query(JavaSourceInJarFile).filter(
+                    JavaSourceInJarFile.jar_file_id == jar_file.id,
+                    JavaSourceInJarFile.java_source_file_version_id == java_source_version.id
+                ).first()
+                
+                if not existing_mapping:
+                    mapping = JavaSourceInJarFile(
+                        jar_file_id=jar_file.id,
+                        java_source_file_version_id=java_source_version.id
+                    )
+                    db.add(mapping)
+            
+            if class_file:
+                # Class file mapping
+                class_file.java_source_file_version_id = java_source_version.id
+            
+            db.commit()
+            logger.debug(f"Imported Java source version: {class_full_name}")
+            return True
+            
+        except IntegrityError:
+            db.rollback()
+            logger.warning(f"Java source file version already exists: {class_full_name}")
+            return False
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Error importing Java source file {file_path}: {e}")
+            return False
 
 def main():
     parser = argparse.ArgumentParser(description='Import Java source files to database')
