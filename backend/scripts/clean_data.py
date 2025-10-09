@@ -36,12 +36,15 @@ class DataCleaner:
             # Disable foreign key checks temporarily
             db.execute(text("SET FOREIGN_KEY_CHECKS = 0"))
             
-            # Clear tables in reverse dependency order
+            # Clear tables in reverse dependency order (excluding services table)
+            # Order: child tables first, then parent tables
             tables_to_clear = [
-                'source_differences',
-                'java_source_files', 
-                'jar_files',
-                'services'
+                'source_differences',           # References: services, java_source_file_versions
+                'java_source_in_jar_files',     # References: jar_files, java_source_file_versions
+                'class_files',                  # References: services, java_source_file_versions
+                'jar_files',                    # References: services
+                'java_source_file_versions',    # References: java_source_files
+                'java_source_files'             # No dependencies
             ]
             
             for table in tables_to_clear:
@@ -72,7 +75,7 @@ class DataCleaner:
         db = self.get_db_session()
         
         try:
-            tables = ['services', 'jar_files', 'java_source_files', 'source_differences']
+            tables = ['services', 'jar_files', 'class_files', 'java_source_files', 'java_source_file_versions', 'java_source_in_jar_files', 'source_differences']
             counts = {}
             
             for table in tables:
