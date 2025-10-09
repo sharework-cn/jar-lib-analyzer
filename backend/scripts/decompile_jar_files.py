@@ -18,6 +18,13 @@ from sqlalchemy.orm import sessionmaker
 import paramiko
 from scp import SCPClient
 
+# Try to import tqdm for better progress bar, fallback to simple version
+try:
+    from tqdm import tqdm
+    HAS_TQDM = True
+except ImportError:
+    HAS_TQDM = False
+
 # Add the backend directory to the path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
@@ -174,33 +181,75 @@ class JarDecompiler:
             
             successful_decompiles = 0
             
-            for jar_file in jar_files:
-                try:
-                    # Skip third-party JAR files
-                    if jar_file.is_third_party:
-                        logger.debug(f"Skipping third-party JAR: {jar_file.jar_name}")
-                        continue
+            # Process JAR files with progress tracking
+            if HAS_TQDM:
+                # Use tqdm for better progress bar
+                with tqdm(total=len(jar_files), desc=f"Decompiling {service_name}", unit="jar") as pbar:
+                    for jar_file in jar_files:
+                        try:
+                            # Skip third-party JAR files
+                            if jar_file.is_third_party:
+                                logger.debug(f"Skipping third-party JAR: {jar_file.jar_name}")
+                                pbar.update(1)
+                                continue
+                            
+                            # Download or copy JAR file
+                            if service.username and service.password:
+                                jar_file_path = self.download_jar_from_server(service, jar_file)
+                            else:
+                                jar_file_path = self.copy_jar_from_local(service, jar_file)
+                            
+                            if not jar_file_path:
+                                pbar.update(1)
+                                continue
+                            
+                            # Decompile JAR file
+                            decompile_dir = self.decompile_jar(jar_file_path, service, jar_file)
+                            
+                            if decompile_dir:
+                                successful_decompiles += 1
+                                # Update JAR file record with local path
+                                jar_file.file_path = jar_file_path
+                                db.commit()
+                            
+                            pbar.update(1)
+                        
+                        except Exception as e:
+                            logger.error(f"Error processing JAR {jar_file.jar_name}: {e}")
+                            pbar.update(1)
+            else:
+                # Fallback to simple progress tracking
+                for idx, jar_file in enumerate(jar_files, 1):
+                    try:
+                        # Skip third-party JAR files
+                        if jar_file.is_third_party:
+                            logger.debug(f"Skipping third-party JAR: {jar_file.jar_name}")
+                            continue
+                        
+                        # Download or copy JAR file
+                        if service.username and service.password:
+                            jar_file_path = self.download_jar_from_server(service, jar_file)
+                        else:
+                            jar_file_path = self.copy_jar_from_local(service, jar_file)
+                        
+                        if not jar_file_path:
+                            continue
+                        
+                        # Decompile JAR file
+                        decompile_dir = self.decompile_jar(jar_file_path, service, jar_file)
+                        
+                        if decompile_dir:
+                            successful_decompiles += 1
+                            # Update JAR file record with local path
+                            jar_file.file_path = jar_file_path
+                            db.commit()
+                        
+                        # Simple progress logging
+                        progress = (idx / len(jar_files)) * 100
+                        logger.info(f"Progress: {progress:.1f}% ({idx}/{len(jar_files)})")
                     
-                    # Download or copy JAR file
-                    if service.username and service.password:
-                        jar_file_path = self.download_jar_from_server(service, jar_file)
-                    else:
-                        jar_file_path = self.copy_jar_from_local(service, jar_file)
-                    
-                    if not jar_file_path:
-                        continue
-                    
-                    # Decompile JAR file
-                    decompile_dir = self.decompile_jar(jar_file_path, service, jar_file)
-                    
-                    if decompile_dir:
-                        successful_decompiles += 1
-                        # Update JAR file record with local path
-                        jar_file.file_path = jar_file_path
-                        db.commit()
-                
-                except Exception as e:
-                    logger.error(f"Error processing JAR {jar_file.jar_name}: {e}")
+                    except Exception as e:
+                        logger.error(f"Error processing JAR {jar_file.jar_name}: {e}")
             
             logger.info(f"Successfully decompiled {successful_decompiles}/{len(jar_files)} JAR files for service: {service_name}")
             return True
@@ -221,16 +270,30 @@ class JarDecompiler:
             services = db.query(Service).all()
             total_services = len(services)
             
-            for idx, service in enumerate(services, 1):
-                logger.info(f"[{idx}/{total_services}] Processing service: {service.service_name} ({service.environment})")
-                
-                success = self.decompile_jars_for_service(service.service_name, service.environment)
-                if not success:
-                    logger.error(f"Failed to decompile JAR files for service: {service.service_name}")
-                
-                # Show progress
-                progress = (idx / total_services) * 100
-                logger.info(f"Progress: {progress:.1f}%")
+            # Process services with progress tracking
+            if HAS_TQDM:
+                # Use tqdm for better progress bar
+                with tqdm(total=total_services, desc="Processing services", unit="service") as pbar:
+                    for service in services:
+                        logger.info(f"Processing service: {service.service_name} ({service.environment})")
+                        
+                        success = self.decompile_jars_for_service(service.service_name, service.environment)
+                        if not success:
+                            logger.error(f"Failed to decompile JAR files for service: {service.service_name}")
+                        
+                        pbar.update(1)
+            else:
+                # Fallback to simple progress tracking
+                for idx, service in enumerate(services, 1):
+                    logger.info(f"[{idx}/{total_services}] Processing service: {service.service_name} ({service.environment})")
+                    
+                    success = self.decompile_jars_for_service(service.service_name, service.environment)
+                    if not success:
+                        logger.error(f"Failed to decompile JAR files for service: {service.service_name}")
+                    
+                    # Show progress
+                    progress = (idx / total_services) * 100
+                    logger.info(f"Progress: {progress:.1f}%")
             
             logger.info("JAR files decompilation completed for all services")
             

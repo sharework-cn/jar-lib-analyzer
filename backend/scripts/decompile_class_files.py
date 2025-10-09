@@ -18,6 +18,13 @@ from sqlalchemy.orm import sessionmaker
 import paramiko
 from scp import SCPClient
 
+# Try to import tqdm for better progress bar, fallback to simple version
+try:
+    from tqdm import tqdm
+    HAS_TQDM = True
+except ImportError:
+    HAS_TQDM = False
+
 # Add the backend directory to the path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
@@ -185,28 +192,64 @@ class ClassDecompiler:
             
             successful_decompiles = 0
             
-            for class_file in class_files:
-                try:
-                    # Download or copy class file
-                    if service.username and service.password:
-                        class_file_path = self.download_class_from_server(service, class_file)
-                    else:
-                        class_file_path = self.copy_class_from_local(service, class_file)
+            # Process class files with progress tracking
+            if HAS_TQDM:
+                # Use tqdm for better progress bar
+                with tqdm(total=len(class_files), desc=f"Decompiling {service_name}", unit="class") as pbar:
+                    for class_file in class_files:
+                        try:
+                            # Download or copy class file
+                            if service.username and service.password:
+                                class_file_path = self.download_class_from_server(service, class_file)
+                            else:
+                                class_file_path = self.copy_class_from_local(service, class_file)
+                            
+                            if not class_file_path:
+                                pbar.update(1)
+                                continue
+                            
+                            # Decompile class file
+                            decompile_dir = self.decompile_class(class_file_path, service, class_file)
+                            
+                            if decompile_dir:
+                                successful_decompiles += 1
+                                # Update class file record with local path
+                                class_file.file_path = class_file_path
+                                db.commit()
+                            
+                            pbar.update(1)
+                        
+                        except Exception as e:
+                            logger.error(f"Error processing class {class_file.class_full_name}: {e}")
+                            pbar.update(1)
+            else:
+                # Fallback to simple progress tracking
+                for idx, class_file in enumerate(class_files, 1):
+                    try:
+                        # Download or copy class file
+                        if service.username and service.password:
+                            class_file_path = self.download_class_from_server(service, class_file)
+                        else:
+                            class_file_path = self.copy_class_from_local(service, class_file)
+                        
+                        if not class_file_path:
+                            continue
+                        
+                        # Decompile class file
+                        decompile_dir = self.decompile_class(class_file_path, service, class_file)
+                        
+                        if decompile_dir:
+                            successful_decompiles += 1
+                            # Update class file record with local path
+                            class_file.file_path = class_file_path
+                            db.commit()
+                        
+                        # Simple progress logging
+                        progress = (idx / len(class_files)) * 100
+                        logger.info(f"Progress: {progress:.1f}% ({idx}/{len(class_files)})")
                     
-                    if not class_file_path:
-                        continue
-                    
-                    # Decompile class file
-                    decompile_dir = self.decompile_class(class_file_path, service, class_file)
-                    
-                    if decompile_dir:
-                        successful_decompiles += 1
-                        # Update class file record with local path
-                        class_file.file_path = class_file_path
-                        db.commit()
-                
-                except Exception as e:
-                    logger.error(f"Error processing class {class_file.class_full_name}: {e}")
+                    except Exception as e:
+                        logger.error(f"Error processing class {class_file.class_full_name}: {e}")
             
             logger.info(f"Successfully decompiled {successful_decompiles}/{len(class_files)} class files for service: {service_name}")
             return True
@@ -227,16 +270,30 @@ class ClassDecompiler:
             services = db.query(Service).all()
             total_services = len(services)
             
-            for idx, service in enumerate(services, 1):
-                logger.info(f"[{idx}/{total_services}] Processing service: {service.service_name} ({service.environment})")
-                
-                success = self.decompile_classes_for_service(service.service_name, service.environment)
-                if not success:
-                    logger.error(f"Failed to decompile class files for service: {service.service_name}")
-                
-                # Show progress
-                progress = (idx / total_services) * 100
-                logger.info(f"Progress: {progress:.1f}%")
+            # Process services with progress tracking
+            if HAS_TQDM:
+                # Use tqdm for better progress bar
+                with tqdm(total=total_services, desc="Processing services", unit="service") as pbar:
+                    for service in services:
+                        logger.info(f"Processing service: {service.service_name} ({service.environment})")
+                        
+                        success = self.decompile_classes_for_service(service.service_name, service.environment)
+                        if not success:
+                            logger.error(f"Failed to decompile class files for service: {service.service_name}")
+                        
+                        pbar.update(1)
+            else:
+                # Fallback to simple progress tracking
+                for idx, service in enumerate(services, 1):
+                    logger.info(f"[{idx}/{total_services}] Processing service: {service.service_name} ({service.environment})")
+                    
+                    success = self.decompile_classes_for_service(service.service_name, service.environment)
+                    if not success:
+                        logger.error(f"Failed to decompile class files for service: {service.service_name}")
+                    
+                    # Show progress
+                    progress = (idx / total_services) * 100
+                    logger.info(f"Progress: {progress:.1f}%")
             
             logger.info("Class files decompilation completed for all services")
             
