@@ -26,6 +26,246 @@ from main import Service, JarFile, ClassFile, JavaSourceFile, JavaSourceFileVers
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+class JavaSourceFilter:
+    """Filter for Java source files import"""
+    
+    def __init__(self, db, service_name=None, jar_name=None, class_name=None, all_services=False):
+        self.db = db
+        self.service_name = service_name
+        self.jar_name = jar_name
+        self.class_name = class_name
+        self.all_services = all_services
+        
+        # Initialize filter results
+        self.scan_directories = []
+        self.target_files = []
+        self.statistics = {
+            'total_files': 0,
+            'jar_files': 0,
+            'class_files': 0,
+            'services': set(),
+            'jars': set()
+        }
+        
+        # Build filter
+        self._build_filter()
+    
+    def _build_filter(self):
+        """Build the filter based on parameters"""
+        # Step 1: Get scan directories
+        self._get_scan_directories()
+        
+        # Step 2: Scan and filter files
+        self._scan_and_filter_files()
+    
+    def _get_scan_directories(self):
+        """Get directories to scan based on service filter"""
+        if self.all_services:
+            # Get all services and check if they have same directories
+            services = self.db.query(Service).all()
+            if not services:
+                logger.warning("No services found in database")
+                return
+            
+            # Check directory consistency
+            jar_dirs = set()
+            class_dirs = set()
+            
+            for service in services:
+                if service.jar_decompile_output_dir:
+                    jar_dirs.add(service.jar_decompile_output_dir)
+                if service.class_decompile_output_dir:
+                    class_dirs.add(service.class_decompile_output_dir)
+            
+            if len(jar_dirs) != 1 or len(class_dirs) != 1:
+                raise ValueError("All services must have the same jar_decompile_output_dir and class_decompile_output_dir for --all-services mode")
+            
+            jar_dir = list(jar_dirs)[0]
+            class_dir = list(class_dirs)[0]
+            
+            self.scan_directories = [
+                {'path': jar_dir, 'type': 'jar', 'services': services},
+                {'path': class_dir, 'type': 'class', 'services': services}
+            ]
+            
+            logger.info(f"All-services mode: JAR dir={jar_dir}, Class dir={class_dir}")
+        else:
+            # Get specific service
+            if not self.service_name:
+                raise ValueError("Must specify --service-name when not using --all-services")
+            
+            service = self.db.query(Service).filter(Service.service_name == self.service_name).first()
+            if not service:
+                raise ValueError(f"Service not found: {self.service_name}")
+            
+            self.scan_directories = []
+            if service.jar_decompile_output_dir:
+                self.scan_directories.append({
+                    'path': service.jar_decompile_output_dir,
+                    'type': 'jar',
+                    'services': [service]
+                })
+            if service.class_decompile_output_dir:
+                self.scan_directories.append({
+                    'path': service.class_decompile_output_dir,
+                    'type': 'class',
+                    'services': [service]
+                })
+            
+            logger.info(f"Service {self.service_name}: JAR dir={service.jar_decompile_output_dir}, Class dir={service.class_decompile_output_dir}")
+    
+    def _scan_and_filter_files(self):
+        """Scan directories and filter files based on criteria"""
+        for scan_dir in self.scan_directories:
+            directory_path = scan_dir['path']
+            directory_type = scan_dir['type']
+            services = scan_dir['services']
+            
+            if not os.path.exists(directory_path):
+                logger.warning(f"Directory not found: {directory_path}")
+                continue
+            
+            # Walk through directory
+            for root, dirs, files in os.walk(directory_path):
+                # Skip special directories
+                if f'_{directory_type}' in root:
+                    continue
+                
+                for file in files:
+                    if file.endswith('.java'):
+                        file_path = os.path.join(root, file)
+                        
+                        # Parse file info
+                        file_info = self._parse_file_info(file_path, directory_path, directory_type)
+                        if not file_info:
+                            continue
+                        
+                        # Apply filters
+                        if self._should_include_file(file_info, directory_type):
+                            self.target_files.append({
+                                'file_path': file_path,
+                                'directory_type': directory_type,
+                                'file_info': file_info
+                            })
+                            
+                            # Update statistics
+                            self.statistics['total_files'] += 1
+                            self.statistics['services'].add(file_info['service_name'])
+                            
+                            if directory_type == 'jar':
+                                self.statistics['jar_files'] += 1
+                                self.statistics['jars'].add(file_info['jar_name'])
+                            else:
+                                self.statistics['class_files'] += 1
+    
+    def _parse_file_info(self, file_path, base_dir, directory_type):
+        """Parse file information from path"""
+        try:
+            # Get relative path from base directory
+            rel_path = os.path.relpath(file_path, base_dir)
+            path_parts = rel_path.split(os.sep)
+            
+            if len(path_parts) < 3:
+                return None
+            
+            if directory_type == 'jar':
+                # Format: jar_name/timestamp-service@ip/com/package/ClassName.java
+                jar_name = path_parts[0]
+                timestamp_dir = path_parts[1]
+                java_path_parts = path_parts[2:]
+            else:
+                # Format: class_name/timestamp-service@ip/com/package/ClassName.java
+                jar_name = None
+                timestamp_dir = path_parts[1]
+                java_path_parts = path_parts[2:]
+            
+            # Extract service name from timestamp directory
+            timestamp_parts = timestamp_dir.split('-')
+            if len(timestamp_parts) < 2:
+                return None
+            
+            service_ip_part = timestamp_parts[1]  # service_name@ip_address
+            if '@' in service_ip_part:
+                service_name = service_ip_part.split('@')[0]
+            else:
+                service_name = service_ip_part
+            
+            # Extract class full name from Java path
+            if not java_path_parts or not java_path_parts[-1].endswith('.java'):
+                return None
+            
+            # Remove .java extension
+            java_path_parts[-1] = java_path_parts[-1][:-5]
+            
+            # Convert path to class name
+            class_full_name = '.'.join(java_path_parts)
+            
+            return {
+                'service_name': service_name,
+                'jar_name': jar_name,
+                'class_full_name': class_full_name,
+                'timestamp_dir': timestamp_dir
+            }
+            
+        except Exception as e:
+            logger.error(f"Error parsing file info from path {file_path}: {e}")
+            return None
+    
+    def _should_include_file(self, file_info, directory_type):
+        """Check if file should be included based on filters"""
+        # Service-level filtering
+        if not self.all_services:
+            if file_info['service_name'] != self.service_name:
+                return False
+        
+        # File-level filtering
+        if directory_type == 'jar':
+            # JAR file filtering
+            if self.jar_name:
+                jar_name_without_ext = self.jar_name.replace('.jar', '')
+                if file_info['jar_name'] != jar_name_without_ext:
+                    return False
+            if self.class_name:
+                # If class_name is specified but we're in jar directory, skip
+                return False
+        else:
+            # Class file filtering
+            if self.class_name:
+                if file_info['class_full_name'] != self.class_name:
+                    return False
+            if self.jar_name:
+                # If jar_name is specified but we're in class directory, skip
+                return False
+        
+        return True
+    
+    def get_statistics(self):
+        """Get filter statistics"""
+        return {
+            'total_files': self.statistics['total_files'],
+            'jar_files': self.statistics['jar_files'],
+            'class_files': self.statistics['class_files'],
+            'services_count': len(self.statistics['services']),
+            'jars_count': len(self.statistics['jars']),
+            'services': sorted(list(self.statistics['services'])),
+            'jars': sorted(list(self.statistics['jars']))
+        }
+    
+    def print_statistics(self):
+        """Print filter statistics"""
+        stats = self.get_statistics()
+        logger.info("=== Import Filter Statistics ===")
+        logger.info(f"Total files to import: {stats['total_files']}")
+        logger.info(f"JAR files: {stats['jar_files']}")
+        logger.info(f"Class files: {stats['class_files']}")
+        logger.info(f"Services: {stats['services_count']} ({', '.join(stats['services'])})")
+        logger.info(f"JARs: {stats['jars_count']} ({', '.join(stats['jars'])})")
+        logger.info("================================")
+    
+    def get_target_files(self):
+        """Get list of target files to import"""
+        return self.target_files
+
 class JavaSourceImporter:
     """Java source file importer"""
     
@@ -33,10 +273,201 @@ class JavaSourceImporter:
         self.engine = create_engine(database_url)
         self.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=self.engine)
         self.is_windows = platform.system().lower() == 'windows'
-        
+    
     def get_db_session(self):
         """Get database session"""
         return self.SessionLocal()
+    
+    def create_filter(self, service_name=None, jar_name=None, class_name=None, all_services=False):
+        """Create a filter for Java source import"""
+        return JavaSourceFilter(
+            self.get_db_session(), 
+            service_name=service_name,
+            jar_name=jar_name, 
+            class_name=class_name,
+            all_services=all_services
+        )
+    
+    def import_java_sources_with_filter(self, filter_obj, dry_run=False):
+        """Import Java source files using filter"""
+        if dry_run:
+            logger.info("=== DRY RUN MODE ===")
+            filter_obj.print_statistics()
+            return True
+        
+        logger.info("=== IMPORT MODE ===")
+        filter_obj.print_statistics()
+        
+        target_files = filter_obj.get_target_files()
+        total_files = len(target_files)
+        
+        if total_files == 0:
+            logger.warning("No files to import")
+            return True
+        
+        logger.info(f"Starting import of {total_files} files...")
+        
+        imported_count = 0
+        updated_count = 0
+        
+        # Process files with progress tracking
+        for idx, file_info in enumerate(target_files, 1):
+            file_path = file_info['file_path']
+            directory_type = file_info['directory_type']
+            file_metadata = file_info['file_info']
+            
+            progress = (idx / total_files) * 100
+            logger.info(f"Processing file [{idx}/{total_files}] ({progress:.1f}%): {os.path.basename(file_path)}")
+            
+            try:
+                success = self._import_single_file(file_path, file_metadata, directory_type)
+                if success:
+                    updated_count += 1
+            except Exception as e:
+                logger.error(f"Error importing file {file_path}: {e}")
+        
+        logger.info(f"Import completed: {updated_count} files processed")
+        return True
+    
+    def _import_single_file(self, file_path, file_metadata, directory_type):
+        """Import a single Java source file"""
+        db = self.get_db_session()
+        
+        try:
+            # Use long path prefix for Windows compatibility
+            long_path = self.get_long_path_prefix(file_path)
+            
+            # Read file content
+            try:
+                with open(long_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    file_content = f.read()
+            except (OSError, IOError) as e:
+                logger.warning(f"Failed to read file with long path, trying original path: {e}")
+                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    file_content = f.read()
+            
+            # Calculate file properties
+            try:
+                file_size = os.path.getsize(long_path)
+                mtime = os.path.getmtime(long_path)
+            except (OSError, IOError):
+                file_size = os.path.getsize(file_path)
+                mtime = os.path.getmtime(file_path)
+            
+            file_hash = hashlib.sha256(file_content.encode('utf-8')).hexdigest()
+            line_count = len(file_content.splitlines())
+            last_modified = datetime.fromtimestamp(mtime)
+            
+            class_full_name = file_metadata['class_full_name']
+            
+            # Check if Java source file already exists
+            existing_source = db.query(JavaSourceFile).filter(
+                JavaSourceFile.class_full_name == class_full_name
+            ).first()
+            
+            if not existing_source:
+                # Create new Java source file
+                existing_source = JavaSourceFile(
+                    class_full_name=class_full_name
+                )
+                db.add(existing_source)
+                db.flush()  # Get the ID
+            
+            # Create new version for this source file
+            # Normalize file path to use Linux-style forward slashes
+            normalized_file_path = file_path.replace('\\', '/')
+            java_source_version = JavaSourceFileVersion(
+                java_source_file_id=existing_source.id,
+                file_path=normalized_file_path,
+                file_content=file_content,
+                file_size=file_size,
+                last_modified=last_modified,
+                file_hash=file_hash,
+                line_count=line_count
+            )
+            db.add(java_source_version)
+            db.flush()  # Get the ID
+            
+            # Create mappings based on file type
+            if directory_type == 'jar':
+                self._create_jar_mapping(file_metadata, java_source_version, db)
+            else:
+                self._create_class_mapping(file_metadata, java_source_version, db)
+            
+            db.commit()
+            logger.debug(f"Imported Java source version: {class_full_name}")
+            return True
+            
+        except IntegrityError:
+            db.rollback()
+            logger.warning(f"Java source file version already exists: {class_full_name}")
+            return False
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Error importing Java source file {file_path}: {e}")
+            return False
+        finally:
+            db.close()
+    
+    def _create_jar_mapping(self, file_metadata, java_source_version, db):
+        """Create JAR file mapping"""
+        service_name = file_metadata['service_name']
+        jar_name = file_metadata['jar_name']
+        
+        # Find service
+        service = db.query(Service).filter(Service.service_name == service_name).first()
+        if not service:
+            logger.warning(f"Service not found: {service_name}")
+            return
+        
+        # Find JAR file
+        jar_file = None
+        for jf in db.query(JarFile).filter(JarFile.service_id == service.id).all():
+            db_jar_name_without_ext = jf.jar_name.replace('.jar', '')
+            if db_jar_name_without_ext == jar_name:
+                jar_file = jf
+                break
+        
+        if not jar_file:
+            logger.warning(f"JAR file not found for class {file_metadata['class_full_name']}: {jar_name}")
+            return
+        
+        # Create mapping
+        existing_mapping = db.query(JavaSourceInJarFile).filter(
+            JavaSourceInJarFile.jar_file_id == jar_file.id,
+            JavaSourceInJarFile.java_source_file_version_id == java_source_version.id
+        ).first()
+        
+        if not existing_mapping:
+            mapping = JavaSourceInJarFile(
+                jar_file_id=jar_file.id,
+                java_source_file_version_id=java_source_version.id
+            )
+            db.add(mapping)
+    
+    def _create_class_mapping(self, file_metadata, java_source_version, db):
+        """Create class file mapping"""
+        service_name = file_metadata['service_name']
+        class_full_name = file_metadata['class_full_name']
+        
+        # Find service
+        service = db.query(Service).filter(Service.service_name == service_name).first()
+        if not service:
+            logger.warning(f"Service not found: {service_name}")
+            return
+        
+        # Find class file
+        class_file = db.query(ClassFile).filter(
+            ClassFile.service_id == service.id,
+            ClassFile.class_full_name == class_full_name
+        ).first()
+        
+        if not class_file:
+            logger.warning(f"Class file not found for class: {class_full_name}")
+            return
+        
+        # Update class file with source file version reference
+        class_file.java_source_file_version_id = java_source_version.id
     
     def get_long_path_prefix(self, path_str):
         """Convert normal path to UNC format path that supports long paths."""
@@ -790,24 +1221,47 @@ def main():
     parser.add_argument('--environment', default='production',
                        help='Environment filter (default: production)')
     parser.add_argument('--jar-name',
-                       help='JAR name parameter - when specified, uses jar-name (without .jar extension) as the first-level subdirectory in jar decompile output directory')
+                       help='JAR name parameter - when specified, only processes files from this specific JAR')
+    parser.add_argument('--class-name',
+                       help='Class name parameter - when specified, only processes files with this specific class name')
     parser.add_argument('--all-services', action='store_true',
                        help='Import Java source files for all services')
+    parser.add_argument('--dry-run', action='store_true',
+                       help='Dry run mode - show statistics without importing')
     
     args = parser.parse_args()
+    
+    # Validate arguments
+    if not args.all_services and not args.service_name:
+        logger.error("Must specify either --service-name or --all-services")
+        sys.exit(1)
+    
+    if args.all_services and args.service_name:
+        logger.error("Cannot specify both --all-services and --service-name")
+        sys.exit(1)
     
     importer = JavaSourceImporter(args.database_url)
     
     try:
-        if args.all_services:
-            importer.import_java_sources_for_all_services()
-        elif args.service_name:
-            importer.import_java_sources_for_service(args.service_name, args.environment, args.jar_name)
-        else:
-            logger.error("Must specify either --service-name or --all-services")
-            sys.exit(1)
+        # Create filter
+        filter_obj = importer.create_filter(
+            service_name=args.service_name,
+            jar_name=args.jar_name,
+            class_name=args.class_name,
+            all_services=args.all_services
+        )
         
-        logger.info("Java source files import completed successfully!")
+        # Import using filter
+        success = importer.import_java_sources_with_filter(filter_obj, dry_run=args.dry_run)
+        
+        if success:
+            if args.dry_run:
+                logger.info("Dry run completed successfully!")
+            else:
+                logger.info("Java source files import completed successfully!")
+        else:
+            logger.error("Import failed")
+            sys.exit(1)
         
     except Exception as e:
         logger.error(f"Java source files import failed: {e}")
