@@ -11,11 +11,19 @@ import argparse
 import logging
 import hashlib
 import platform
+import time
 from datetime import datetime
 from pathlib import Path
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import IntegrityError
+
+# Try to import tqdm for better progress bar, fallback to simple version
+try:
+    from tqdm import tqdm
+    HAS_TQDM = True
+except ImportError:
+    HAS_TQDM = False
 
 # Add the backend directory to the path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
@@ -25,6 +33,51 @@ from main import Service, JarFile, ClassFile, JavaSourceFile, JavaSourceFileVers
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+class TextProgressBar:
+    """Fixed position text-based progress bar"""
+    
+    def __init__(self, total, width=50, desc="Progress"):
+        self.total = total
+        self.width = width
+        self.desc = desc
+        self.current = 0
+        self.start_time = time.time()
+        self._printed = False
+    
+    def update(self, increment=1):
+        """Update progress bar"""
+        self.current += increment
+        self._display()
+    
+    def set_progress(self, current):
+        """Set current progress"""
+        self.current = current
+        self._display()
+    
+    def _display(self):
+        """Display the progress bar"""
+        if self.total == 0:
+            percent = 100
+        else:
+            percent = min(100, (self.current / self.total) * 100)
+        
+        filled = int(self.width * percent / 100)
+        # Use ASCII characters for better compatibility
+        bar = '=' * filled + '-' * (self.width - filled)
+        
+        elapsed = time.time() - self.start_time
+        if self.current > 0:
+            eta = (elapsed / self.current) * (self.total - self.current)
+            eta_str = f"ETA: {eta:.1f}s" if eta > 0 else "ETA: --"
+        else:
+            eta_str = "ETA: --"
+        
+        # Move cursor to beginning of line and clear it
+        print(f"\r\033[K{self.desc}: [{bar}] {percent:6.1f}% ({self.current}/{self.total}) {eta_str}", end='', flush=True)
+        
+        if self.current >= self.total:
+            print()  # New line when complete
 
 class JavaSourceFilter:
     """Filter for Java source files import"""
@@ -311,20 +364,40 @@ class JavaSourceImporter:
         updated_count = 0
         
         # Process files with progress tracking
-        for idx, file_info in enumerate(target_files, 1):
-            file_path = file_info['file_path']
-            directory_type = file_info['directory_type']
-            file_metadata = file_info['file_info']
-            
-            progress = (idx / total_files) * 100
-            logger.info(f"Processing file [{idx}/{total_files}] ({progress:.1f}%): {os.path.basename(file_path)}")
-            
-            try:
-                success = self._import_single_file(file_path, file_metadata, directory_type)
-                if success:
-                    updated_count += 1
-            except Exception as e:
-                logger.error(f"Error importing file {file_path}: {e}")
+        if HAS_TQDM:
+            # Use tqdm for better progress bar
+            with tqdm(total=total_files, desc="Importing files", unit="file") as pbar:
+                for file_info in target_files:
+                    file_path = file_info['file_path']
+                    directory_type = file_info['directory_type']
+                    file_metadata = file_info['file_info']
+                    
+                    try:
+                        success = self._import_single_file(file_path, file_metadata, directory_type)
+                        if success:
+                            updated_count += 1
+                    except Exception as e:
+                        logger.error(f"Error importing file {file_path}: {e}")
+                    
+                    # Update progress bar
+                    pbar.update(1)
+        else:
+            # Fallback to simple progress bar
+            progress_bar = TextProgressBar(total_files, desc="Importing files")
+            for file_info in target_files:
+                file_path = file_info['file_path']
+                directory_type = file_info['directory_type']
+                file_metadata = file_info['file_info']
+                
+                try:
+                    success = self._import_single_file(file_path, file_metadata, directory_type)
+                    if success:
+                        updated_count += 1
+                except Exception as e:
+                    logger.error(f"Error importing file {file_path}: {e}")
+                
+                # Update progress bar
+                progress_bar.update()
         
         logger.info(f"Import completed: {updated_count} files processed")
         return True

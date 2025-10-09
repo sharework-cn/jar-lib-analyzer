@@ -314,3 +314,24 @@ services (服务)
 - 数据库连接检查
 - 服务状态监控
 - 处理进度跟踪
+
+### 设计片段
+
+我想对@import_java_sources.py 进行调整，首先我觉得可以将--service-name，--jar-name，--all-services，再增加一个--class-name（过滤class_full_name），四个参数注入到一个过滤器中，过滤器可以根据业务逻辑得到需要扫描的目录，还可以根据过滤条件遍历需要导入的文件。
+
+扫描目录的逻辑为：
+ 按照--service-name从服务中获取反编译目录（包括jar_decompile_output_dir和class_decompile_output_dir）的并集，并且能够区分哪些目录是class反编译输出目录，哪些是jar反编译目录。如果指定了--all-services则为所有服务，且所有服务的jar_decompile_output_dir必须一样，class_decompile_output_dir也必须一样，jar_decompile_output_dir和class_decompile_output_dir可以不一样。
+
+过滤逻辑为：
+获得文件路径并按照jar或者class反编译目录生成规则进行解析，得到jar名+service_name或class_full_name+service_name，然后根据下面两级筛选条件进行过滤：
+1. 服务层级的筛选
+- 如果指定了--all-services，则不过滤service_name，否则只输出service_name等于指定参数值的文件；
+2. 文件层级的筛选
+- 如果指定了--jar-name，则只处理jar反编译目录，且只处理特定的jar文件的反编译目录
+- 如果指定了--class-name，则只处理class反编译目录，且且只处理class_full_name等于指定class-name的文件
+- 如果两者都未指定，则输出所有文件（即仅按服务筛选规则进行筛选）
+- 如果两者都指定了，则既处理jar反编译目录，也处理处理class反编译目录，并且均按参数指定筛选具体的文件
+
+通过这个过滤器，能够清晰地知道需要扫描哪些目录，并且能够提前知道要处理哪些文件（以及这些文件的service_name, service_id，类型-jar还是class反编译文件、jar_files或者class_files的id）
+
+然后实际进行源码导入时，就可以根据过滤器的结果进行处理了。还可以顺利地增加一个dry-run模式，即进行信息统计，检查各类型、各服务有多少文件要导入，输出统计信息。
