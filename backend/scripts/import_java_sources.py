@@ -169,6 +169,7 @@ class JavaSourceFilter:
     
     def _scan_and_filter_files(self):
         """Scan directories and filter files based on criteria"""
+        logger.info("Scanning directories for Java source files...")
         for scan_dir in self.scan_directories:
             directory_path = scan_dir['path']
             directory_type = scan_dir['type']
@@ -312,7 +313,7 @@ class JavaSourceFilter:
         logger.info(f"JAR files: {stats['jar_files']}")
         logger.info(f"Class files: {stats['class_files']}")
         logger.info(f"Services: {stats['services_count']} ({', '.join(stats['services'])})")
-        logger.info(f"JARs: {stats['jars_count']} ({', '.join(stats['jars'])})")
+        logger.info(f"JARs: {stats['jars_count']}")
         logger.info("================================")
     
     def get_target_files(self):
