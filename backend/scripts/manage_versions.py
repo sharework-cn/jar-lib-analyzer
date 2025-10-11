@@ -32,8 +32,8 @@ class VersionManager:
         return self.SessionLocal()
     
     def generate_jar_versions(self, service_name=None):
-        """Generate versions for JAR files based on file size changes"""
-        logger.info("Starting JAR version generation...")
+        """Generate versions for JAR files based on file size changes and merge source mappings"""
+        logger.info("Starting JAR version generation and source merging...")
         
         db = self.get_db_session()
         
@@ -58,6 +58,7 @@ class VersionManager:
             logger.info(f"Found {len(jar_groups)} unique JAR names")
             
             total_updated = 0
+            total_merged = 0
             
             for jar_name, jars in jar_groups.items():
                 # Sort by last_modified (ascending)
@@ -66,18 +67,19 @@ class VersionManager:
                 # Generate versions based on file size changes
                 versions = self._generate_versions_by_size(jars)
                 
-                # Update database
-                for jar_file, version_no in zip(jars, versions):
-                    jar_file.version_no = version_no
-                    total_updated += 1
+                # Update database and merge source mappings
+                merged_count = self._update_jar_versions_and_merge_sources(db, jars, versions)
                 
-                logger.info(f"JAR {jar_name}: {len(jars)} files, versions {min(versions)}-{max(versions)}")
+                total_updated += len(jars)
+                total_merged += merged_count
+                
+                logger.info(f"JAR {jar_name}: {len(jars)} files, versions {min(versions)}-{max(versions)}, {merged_count} source mappings merged")
             
             # Set last_version_no for each jar_name
             self._set_last_versions(db, 'jar_files', 'jar_name')
             
             db.commit()
-            logger.info(f"JAR version generation completed: {total_updated} files updated")
+            logger.info(f"JAR version generation completed: {total_updated} files updated, {total_merged} source mappings merged")
             return True
             
         except Exception as e:
@@ -88,8 +90,8 @@ class VersionManager:
             db.close()
     
     def generate_class_versions(self, service_name=None):
-        """Generate versions for Class files based on file size changes"""
-        logger.info("Starting Class version generation...")
+        """Generate versions for Class files based on file size changes and merge source mappings"""
+        logger.info("Starting Class version generation and source merging...")
         
         db = self.get_db_session()
         
@@ -114,6 +116,7 @@ class VersionManager:
             logger.info(f"Found {len(class_groups)} unique class names")
             
             total_updated = 0
+            total_merged = 0
             
             for class_name, classes in class_groups.items():
                 # Sort by last_modified (ascending)
@@ -122,18 +125,19 @@ class VersionManager:
                 # Generate versions based on file size changes
                 versions = self._generate_versions_by_size(classes)
                 
-                # Update database
-                for class_file, version_no in zip(classes, versions):
-                    class_file.version_no = version_no
-                    total_updated += 1
+                # Update database and merge source mappings
+                merged_count = self._update_class_versions_and_merge_sources(db, classes, versions)
                 
-                logger.info(f"Class {class_name}: {len(classes)} files, versions {min(versions)}-{max(versions)}")
+                total_updated += len(classes)
+                total_merged += merged_count
+                
+                logger.info(f"Class {class_name}: {len(classes)} files, versions {min(versions)}-{max(versions)}, {merged_count} source mappings merged")
             
             # Set last_version_no for each class_full_name
             self._set_last_versions(db, 'class_files', 'class_full_name')
             
             db.commit()
-            logger.info(f"Class version generation completed: {total_updated} files updated")
+            logger.info(f"Class version generation completed: {total_updated} files updated, {total_merged} source mappings merged")
             return True
             
         except Exception as e:
@@ -167,88 +171,24 @@ class VersionManager:
         
         return versions
     
-    def _set_last_versions(self, db, table_name, name_column):
-        """Set last_version_no for each unique name"""
-        logger.info(f"Setting last_version_no for {table_name}...")
-        
-        # Get max version for each name
-        if table_name == 'jar_files':
-            query = db.query(
-                JarFile.jar_name,
-                func.max(JarFile.version_no).label('max_version')
-            ).group_by(JarFile.jar_name)
-        else:  # class_files
-            query = db.query(
-                ClassFile.class_full_name,
-                func.max(ClassFile.version_no).label('max_version')
-            ).group_by(ClassFile.class_full_name)
-        
-        results = query.all()
-        
-        # Update last_version_no
-        for result in results:
-            if table_name == 'jar_files':
-                db.query(JarFile).filter(
-                    JarFile.jar_name == result.jar_name
-                ).update({'last_version_no': result.max_version})
-            else:  # class_files
-                db.query(ClassFile).filter(
-                    ClassFile.class_full_name == result.class_full_name
-                ).update({'last_version_no': result.max_version})
-        
-        logger.info(f"Updated last_version_no for {len(results)} {table_name}")
-    
-    def merge_source_versions(self, service_name=None):
-        """Merge java_source_file_version_id for files with same version_no"""
-        logger.info("Starting source version merging...")
-        
-        db = self.get_db_session()
-        
-        try:
-            # Merge JAR source versions
-            jar_merged = self._merge_jar_source_versions(db, service_name)
-            
-            # Merge Class source versions
-            class_merged = self._merge_class_source_versions(db, service_name)
-            
-            db.commit()
-            logger.info(f"Source version merging completed: {jar_merged} JAR mappings, {class_merged} Class files updated")
-            return True
-            
-        except Exception as e:
-            db.rollback()
-            logger.error(f"Error during source version merging: {e}")
-            raise
-        finally:
-            db.close()
-    
-    def _merge_jar_source_versions(self, db, service_name=None):
-        """Merge java_source_file_version_id for JAR files with same version_no"""
-        logger.info("Merging JAR source versions...")
-        
-        # Get JAR files grouped by jar_name and version_no
-        query = db.query(JarFile).filter(JarFile.version_no.isnot(None))
-        if service_name:
-            service = db.query(Service).filter(Service.service_name == service_name).first()
-            if service:
-                query = query.filter(JarFile.service_id == service.id)
-        
-        jar_files = query.order_by(JarFile.jar_name, JarFile.version_no, JarFile.last_modified).all()
-        
-        # Group by (jar_name, version_no)
-        groups = defaultdict(list)
-        for jar_file in jar_files:
-            groups[(jar_file.jar_name, jar_file.version_no)].append(jar_file)
-        
+    def _update_jar_versions_and_merge_sources(self, db, jars, versions):
+        """Update JAR versions and merge source mappings in one pass"""
         merged_count = 0
         
-        for (jar_name, version_no), jars in groups.items():
-            if len(jars) <= 1:
+        # Group jars by version number
+        version_groups = defaultdict(list)
+        for jar_file, version_no in zip(jars, versions):
+            jar_file.version_no = version_no
+            version_groups[version_no].append(jar_file)
+        
+        # For each version group, merge source mappings
+        for version_no, version_jars in version_groups.items():
+            if len(version_jars) <= 1:
                 continue
             
             # Use the first JAR's source mappings for all JARs with same version
-            first_jar = jars[0]
-            other_jars = jars[1:]
+            first_jar = version_jars[0]
+            other_jars = version_jars[1:]
             
             # Get source mappings for first JAR
             first_mappings = db.execute(text("""
@@ -280,47 +220,66 @@ class VersionManager:
                     })
                 
                 merged_count += 1
-            
-            logger.info(f"JAR {jar_name} v{version_no}: merged {len(other_jars)} files")
         
         return merged_count
     
-    def _merge_class_source_versions(self, db, service_name=None):
-        """Merge java_source_file_version_id for Class files with same version_no"""
-        logger.info("Merging Class source versions...")
-        
-        # Get Class files grouped by class_full_name and version_no
-        query = db.query(ClassFile).filter(ClassFile.version_no.isnot(None))
-        if service_name:
-            service = db.query(Service).filter(Service.service_name == service_name).first()
-            if service:
-                query = query.filter(ClassFile.service_id == service.id)
-        
-        class_files = query.order_by(ClassFile.class_full_name, ClassFile.version_no, ClassFile.last_modified).all()
-        
-        # Group by (class_full_name, version_no)
-        groups = defaultdict(list)
-        for class_file in class_files:
-            groups[(class_file.class_full_name, class_file.version_no)].append(class_file)
-        
+    def _update_class_versions_and_merge_sources(self, db, classes, versions):
+        """Update Class versions and merge source mappings in one pass"""
         merged_count = 0
         
-        for (class_name, version_no), classes in groups.items():
-            if len(classes) <= 1:
+        # Group classes by version number
+        version_groups = defaultdict(list)
+        for class_file, version_no in zip(classes, versions):
+            class_file.version_no = version_no
+            version_groups[version_no].append(class_file)
+        
+        # For each version group, merge source mappings
+        for version_no, version_classes in version_groups.items():
+            if len(version_classes) <= 1:
                 continue
             
             # Use the first Class's source version for all Classes with same version
-            first_class = classes[0]
-            other_classes = classes[1:]
+            first_class = version_classes[0]
+            other_classes = version_classes[1:]
             
             if first_class.java_source_file_version_id:
                 for other_class in other_classes:
                     other_class.java_source_file_version_id = first_class.java_source_file_version_id
                     merged_count += 1
-                
-                logger.info(f"Class {class_name} v{version_no}: merged {len(other_classes)} files")
         
         return merged_count
+    
+    def _set_last_versions(self, db, table_name, name_column):
+        """Set last_version_no for each unique name"""
+        logger.info(f"Setting last_version_no for {table_name}...")
+        
+        # Get max version for each name
+        if table_name == 'jar_files':
+            query = db.query(
+                JarFile.jar_name,
+                func.max(JarFile.version_no).label('max_version')
+            ).group_by(JarFile.jar_name)
+        else:  # class_files
+            query = db.query(
+                ClassFile.class_full_name,
+                func.max(ClassFile.version_no).label('max_version')
+            ).group_by(ClassFile.class_full_name)
+        
+        results = query.all()
+        
+        # Update last_version_no
+        for result in results:
+            if table_name == 'jar_files':
+                db.query(JarFile).filter(
+                    JarFile.jar_name == result.jar_name
+                ).update({'last_version_no': result.max_version})
+            else:  # class_files
+                db.query(ClassFile).filter(
+                    ClassFile.class_full_name == result.class_full_name
+                ).update({'last_version_no': result.max_version})
+        
+        logger.info(f"Updated last_version_no for {len(results)} {table_name}")
+    
     
     def get_version_statistics(self, service_name=None):
         """Get version statistics"""
@@ -375,9 +334,8 @@ def main():
     parser.add_argument('--database-url', default='mysql+pymysql://jal:271828@172.30.80.95:32306/jal',
                        help='Database connection URL')
     parser.add_argument('--service-name', help='Process specific service only')
-    parser.add_argument('--generate-jar-versions', action='store_true', help='Generate JAR versions')
-    parser.add_argument('--generate-class-versions', action='store_true', help='Generate Class versions')
-    parser.add_argument('--merge-sources', action='store_true', help='Merge source versions')
+    parser.add_argument('--generate-jar-versions', action='store_true', help='Generate JAR versions and merge source mappings')
+    parser.add_argument('--generate-class-versions', action='store_true', help='Generate Class versions and merge source mappings')
     parser.add_argument('--stats-only', action='store_true', help='Show statistics only')
     
     args = parser.parse_args()
@@ -397,11 +355,8 @@ def main():
             if args.generate_class_versions:
                 manager.generate_class_versions(args.service_name)
             
-            if args.merge_sources:
-                manager.merge_source_versions(args.service_name)
-            
-            if not any([args.generate_jar_versions, args.generate_class_versions, args.merge_sources]):
-                logger.info("No action specified. Use --generate-jar-versions, --generate-class-versions, or --merge-sources")
+            if not any([args.generate_jar_versions, args.generate_class_versions]):
+                logger.info("No action specified. Use --generate-jar-versions or --generate-class-versions")
         
         logger.info("Operation completed successfully!")
         

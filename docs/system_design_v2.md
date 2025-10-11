@@ -274,9 +274,9 @@ python import_java_sources.py --service-name dsop_core --jar-name specific.jar -
 python import_java_sources.py --service-name dsop_core --class-name com.example.Class --dry-run
 python import_java_sources.py --all-services --dry-run
 
-# 版本管理（待实现）
-python manage_versions.py --service-name dsop_core --generate-versions
-python manage_versions.py --all-services --merge-sources
+# 版本管理
+python manage_versions.py --service-name dsop_core --generate-jar-versions
+python manage_versions.py --all-services --generate-class-versions
 ```
 
 ## 5. 脚本工具
@@ -371,24 +371,27 @@ services (服务)
 ## 10. 版本管理设计
 
 ### 10.1 版本管理策略
-系统支持基于文件大小变化的智能版本管理：
+系统支持基于文件大小的智能版本管理：
 
 #### 10.1.1 JAR文件版本管理
 - 按JAR名称分组，跨服务管理版本
-- 按最后修改时间升序排序
-- 基于文件大小变化递增版本号
-- 相同大小的JAR文件共享版本号
+- 基于文件大小分配版本号：相同大小 = 相同版本号
+- 不同文件大小 = 不同版本号
+- 版本号按首次出现的文件大小顺序分配
+- 同时自动合并相同版本文件的源码映射关系
 
 #### 10.1.2 Class文件版本管理
 - 按类全名分组，跨服务管理版本
-- 按最后修改时间升序排序
-- 基于文件大小变化递增版本号
-- 相同大小的Class文件共享版本号
+- 基于文件大小分配版本号：相同大小 = 相同版本号
+- 不同文件大小 = 不同版本号
+- 版本号按首次出现的文件大小顺序分配
+- 同时自动合并相同版本文件的源码映射关系
 
 ### 10.2 源码合并策略
 - 相同版本号的JAR/Class文件共享源码版本
 - 通过`java_source_file_version_id`关联实现源码复用
 - 减少重复存储，提高查询效率
+- 版本生成时自动合并源码映射，无需额外遍历
 
 ### 10.3 智能过滤系统
 系统实现了完整的智能过滤功能：
