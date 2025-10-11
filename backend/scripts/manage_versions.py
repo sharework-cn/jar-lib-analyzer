@@ -144,22 +144,26 @@ class VersionManager:
             db.close()
     
     def _generate_versions_by_size(self, files):
-        """Generate version numbers based on file size changes"""
+        """Generate version numbers based on file size - same size = same version"""
         if not files:
             return []
         
-        versions = []
+        # Create a mapping of file size to version number
+        size_to_version = {}
         current_version = 1
-        previous_size = None
         
+        # First pass: assign version numbers to unique sizes
         for file_obj in files:
             current_size = file_obj.file_size or 0
-            
-            if previous_size is not None and current_size != previous_size:
+            if current_size not in size_to_version:
+                size_to_version[current_size] = current_version
                 current_version += 1
-            
-            versions.append(current_version)
-            previous_size = current_size
+        
+        # Second pass: assign version numbers to files based on their size
+        versions = []
+        for file_obj in files:
+            current_size = file_obj.file_size or 0
+            versions.append(size_to_version[current_size])
         
         return versions
     
