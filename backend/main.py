@@ -426,7 +426,7 @@ async def get_jar_versions(jar_name: str):
         # 获取JAR文件版本信息
         versions_query = db.query(
             JarFile.version_no,
-            JarFile.file_size,
+            func.min(JarFile.file_size).label('file_size'),
             func.min(JarFile.last_modified).label('earliest_time'),
             func.max(JarFile.last_modified).label('latest_time'),
             func.count(JarFile.id).label('file_count'),
@@ -472,7 +472,7 @@ async def get_class_versions(class_name: str):
         # 获取Class文件版本信息
         versions_query = db.query(
             ClassFile.version_no,
-            ClassFile.file_size,
+            func.min(ClassFile.file_size).label('file_size'),
             func.min(ClassFile.last_modified).label('earliest_time'),
             func.max(ClassFile.last_modified).label('latest_time'),
             func.count(ClassFile.id).label('file_count'),
@@ -540,9 +540,9 @@ async def get_jar_diff(jar_name: str,
         
         all_files = set(from_files.keys()) | set(to_files.keys())
         
-        for file_path in all_files:
-            from_file = from_files.get(file_path)
-            to_file = to_files.get(file_path)
+        for current_file_path in all_files:
+            from_file = from_files.get(current_file_path)
+            to_file = to_files.get(current_file_path)
             
             if not from_file and to_file:
                 # 新增文件
@@ -574,7 +574,7 @@ async def get_jar_diff(jar_name: str,
             change_percentage = (changes / max(len(from_file.file_content.split('\n')) if from_file else 1, 1)) * 100
             
             file_changes.append(FileChange(
-                file_path=file_path,
+                file_path=current_file_path,
                 change_type=change_type,
                 additions=additions,
                 deletions=deletions,
@@ -588,13 +588,13 @@ async def get_jar_diff(jar_name: str,
             if from_file and to_file and from_file.file_content != to_file.file_content:
                 hunks = generate_diff_hunks(from_file.file_content, to_file.file_content)
                 file_diffs.append(FileDiff(
-                    file_path=file_path,
+                    file_path=current_file_path,
                     hunks=hunks
                 ))
             
             # 存储文件内容用于CodeMirror显示
-            if file_path not in file_contents:
-                file_contents[file_path] = {
+            if current_file_path not in file_contents:
+                file_contents[current_file_path] = {
                     "from_content": from_file.file_content if from_file else "",
                     "to_content": to_file.file_content if to_file else ""
                 }
@@ -612,11 +612,17 @@ async def get_jar_diff(jar_name: str,
         )
         
         # 如果请求特定文件，返回该文件的内容
-        if file_path and file_path in file_contents:
-            return {
-                "from_content": file_contents[file_path]["from_content"],
-                "to_content": file_contents[file_path]["to_content"]
-            }
+        if file_path:
+            if file_path in file_contents:
+                return {
+                    "from_content": file_contents[file_path]["from_content"],
+                    "to_content": file_contents[file_path]["to_content"]
+                }
+            else:
+                return {
+                    "from_content": "",
+                    "to_content": ""
+                }
         
         return VersionDiff(
             from_version=from_version,
