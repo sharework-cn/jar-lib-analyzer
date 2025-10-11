@@ -112,8 +112,11 @@ const currentFileStats = computed(() => {
 const loadDiff = async () => {
   loading.value = true
   try {
+    console.log('Loading diff for:', itemType.value, itemName.value, fromVersion.value, toVersion.value)
     const data = await getVersionDiff(itemType.value, itemName.value, fromVersion.value, toVersion.value)
-    fileChanges.value = data.file_changes
+    console.log('Diff data received:', data)
+    
+    fileChanges.value = data.file_changes || []
     diffSummary.value = data.summary
     
     // 默认选择第一个文件
@@ -123,20 +126,19 @@ const loadDiff = async () => {
     }
   } catch (error) {
     console.error('加载差异数据失败:', error)
-    ElMessage.error('加载差异数据失败')
+    ElMessage.error('加载差异数据失败: ' + error.message)
   } finally {
     loading.value = false
   }
 }
 
 const loadFileDiff = async (filePath) => {
-  if (fileDiffs.value[filePath] && fileContents.value[filePath]) {
+  if (fileContents.value[filePath]) {
     return // 已缓存
   }
   
   try {
     const diff = await getVersionDiff(itemType.value, itemName.value, fromVersion.value, toVersion.value, filePath)
-    fileDiffs.value[filePath] = diff
     
     // 获取文件内容
     const fromContent = diff.from_content || ''
@@ -148,6 +150,7 @@ const loadFileDiff = async (filePath) => {
     }
   } catch (error) {
     console.error('加载文件差异失败:', error)
+    ElMessage.error(`加载文件 ${filePath} 失败`)
   }
 }
 

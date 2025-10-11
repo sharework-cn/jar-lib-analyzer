@@ -111,15 +111,16 @@ onMounted(() => {
     toEditorView = createEditor(toEditor.value, props.toContent || '')
     
     // 同步滚动
-    const syncScroll = (view, otherView) => {
+    const syncScroll = (sourceView, targetView) => {
       return EditorView.updateListener.of((update) => {
         if (update.scrollChanged) {
-          const scrollTop = view.scrollDOM.scrollTop
-          otherView.scrollDOM.scrollTop = scrollTop
+          const scrollTop = sourceView.scrollDOM.scrollTop
+          targetView.scrollDOM.scrollTop = scrollTop
         }
       })
     }
     
+    // 添加同步滚动监听器
     fromEditorView.dispatch({
       effects: fromEditorView.state.reconfigure([
         ...fromEditorView.state.facet(EditorView.scrollMargins),
@@ -148,23 +149,29 @@ onUnmounted(() => {
 // 监听内容变化
 watch(() => [props.fromContent, props.toContent], () => {
   if (fromEditorView && props.fromContent !== undefined) {
-    fromEditorView.dispatch({
-      changes: {
-        from: 0,
-        to: fromEditorView.state.doc.length,
-        insert: props.fromContent
-      }
-    })
+    const currentContent = fromEditorView.state.doc.toString()
+    if (currentContent !== props.fromContent) {
+      fromEditorView.dispatch({
+        changes: {
+          from: 0,
+          to: fromEditorView.state.doc.length,
+          insert: props.fromContent
+        }
+      })
+    }
   }
   
   if (toEditorView && props.toContent !== undefined) {
-    toEditorView.dispatch({
-      changes: {
-        from: 0,
-        to: toEditorView.state.doc.length,
-        insert: props.toContent
-      }
-    })
+    const currentContent = toEditorView.state.doc.toString()
+    if (currentContent !== props.toContent) {
+      toEditorView.dispatch({
+        changes: {
+          from: 0,
+          to: toEditorView.state.doc.length,
+          insert: props.toContent
+        }
+      })
+    }
   }
 })
 </script>
