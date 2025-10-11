@@ -110,30 +110,8 @@ onMounted(() => {
     fromEditorView = createEditor(fromEditor.value, props.fromContent || '')
     toEditorView = createEditor(toEditor.value, props.toContent || '')
     
-    // 同步滚动
-    const syncScroll = (sourceView, targetView) => {
-      return EditorView.updateListener.of((update) => {
-        if (update.scrollChanged) {
-          const scrollTop = sourceView.scrollDOM.scrollTop
-          targetView.scrollDOM.scrollTop = scrollTop
-        }
-      })
-    }
-    
-    // 添加同步滚动监听器
-    fromEditorView.dispatch({
-      effects: fromEditorView.state.reconfigure([
-        ...fromEditorView.state.facet(EditorView.scrollMargins),
-        syncScroll(fromEditorView, toEditorView)
-      ])
-    })
-    
-    toEditorView.dispatch({
-      effects: toEditorView.state.reconfigure([
-        ...toEditorView.state.facet(EditorView.scrollMargins),
-        syncScroll(toEditorView, fromEditorView)
-      ])
-    })
+    // 暂时移除同步滚动功能，确保基本功能正常工作
+    // TODO: 后续实现更稳定的同步滚动
   }
 })
 
