@@ -3,22 +3,28 @@
 ## 1. 系统概述
 
 ### 1.1 系统目的
-本系统是一个基于数据库的Java库分析系统，用于分析、比较和管理不同服务环境中的JAR文件、Class文件和Java源码。系统通过数据库存储所有信息，支持按服务进行批量处理，并提供完整的源码差异分析功能。
+本系统是一个基于数据库的Java库分析系统，用于分析、比较和管理不同服务环境中的JAR文件、Class文件和Java源码。系统通过数据库存储所有信息，支持按服务进行批量处理，并提供完整的源码差异分析和版本管理功能。
 
 ### 1.2 系统范围
 - 服务信息管理和配置
 - JAR文件和Class文件信息导入
 - 文件反编译和源码提取
-- Java源码文件管理和关联
+- Java源码文件版本管理和关联
 - 孤立源码清理
 - 源码差异分析和比较
+- JAR和Class文件版本管理
+- 智能源码合并和去重
 
 ### 1.3 核心特性
 - **数据库驱动**: 所有数据存储在MySQL数据库中，支持复杂查询和关联
 - **按服务处理**: 支持按服务名称和环境进行批量处理
+- **版本化管理**: Java源码文件支持版本管理，相同内容自动合并
+- **智能过滤**: 支持按服务、JAR、Class名称进行精确过滤
 - **自动化流程**: 从文件信息导入到源码分析的完整自动化流程
 - **关联管理**: 通过关联表管理JAR文件、Class文件和源码文件的关系
 - **数据清理**: 自动清理不再被引用的孤立源码文件
+- **进度跟踪**: 使用tqdm提供实时进度条和统计信息
+- **Windows兼容**: 支持Windows长路径和路径标准化
 
 ## 2. 系统架构
 
@@ -37,11 +43,11 @@
 │                        数据库层                                │
 │                                                                 │
 │ - services (服务信息)                                          │
-│ - jar_files (JAR文件信息)                                      │
-│ - class_files (Class文件信息)                                  │
+│ - jar_files (JAR文件信息，支持版本管理)                        │
+│ - class_files (Class文件信息，支持版本管理)                    │
 │ - java_source_files (Java源码文件)                             │
+│ - java_source_file_versions (Java源码文件版本)                 │
 │ - java_source_in_jar_files (JAR源码关联)                       │
-│ - java_source_in_class_files (Class源码关联)                   │
 │ - source_differences (源码差异)                                │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -103,10 +109,15 @@ CREATE TABLE jar_files (
     is_third_party BOOLEAN DEFAULT FALSE,
     is_latest BOOLEAN DEFAULT FALSE,
     file_path VARCHAR(500),
+    decompile_path VARCHAR(500),
+    version_no INT COMMENT '版本号，基于文件大小变化',
+    last_version_no INT COMMENT '最新版本号',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (service_id) REFERENCES services(id) ON DELETE CASCADE,
-    UNIQUE KEY uk_service_jar (service_id, jar_name)
+    UNIQUE KEY uk_service_jar (service_id, jar_name),
+    INDEX idx_jar_name (jar_name),
+    INDEX idx_version_no (version_no)
 );
 ```
 
@@ -119,10 +130,17 @@ CREATE TABLE class_files (
     file_size BIGINT,
     last_modified TIMESTAMP,
     file_path VARCHAR(500),
+    decompile_path VARCHAR(500),
+    java_source_file_version_id INT COMMENT '关联的Java源码文件版本ID',
+    version_no INT COMMENT '版本号，基于文件大小变化',
+    last_version_no INT COMMENT '最新版本号',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (service_id) REFERENCES services(id) ON DELETE CASCADE,
-    UNIQUE KEY uk_service_class (service_id, class_full_name)
+    FOREIGN KEY (java_source_file_version_id) REFERENCES java_source_file_versions(id) ON DELETE SET NULL,
+    UNIQUE KEY uk_service_class (service_id, class_full_name),
+    INDEX idx_class_full_name (class_full_name),
+    INDEX idx_version_no (version_no)
 );
 ```
 
@@ -131,6 +149,18 @@ CREATE TABLE class_files (
 CREATE TABLE java_source_files (
     id INT PRIMARY KEY AUTO_INCREMENT,
     class_full_name VARCHAR(500) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_class_full_name (class_full_name)
+);
+```
+
+#### 3.1.5 java_source_file_versions 表
+```sql
+CREATE TABLE java_source_file_versions (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    java_source_file_id INT NOT NULL,
+    version VARCHAR(50) COMMENT '版本号，导入时为空，后续阶段重建',
     file_path VARCHAR(500) NOT NULL,
     file_content LONGTEXT,
     file_size BIGINT,
@@ -139,31 +169,36 @@ CREATE TABLE java_source_files (
     line_count INT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_class_name (class_full_name)
+    FOREIGN KEY (java_source_file_id) REFERENCES java_source_files(id) ON DELETE CASCADE,
+    INDEX idx_java_source_file_id (java_source_file_id),
+    INDEX idx_file_hash (file_hash)
 );
 ```
 
-#### 3.1.5 关联表
+#### 3.1.6 关联表
 ```sql
 -- JAR源码关联表（多对多关系）
 CREATE TABLE java_source_in_jar_files (
     id INT PRIMARY KEY AUTO_INCREMENT,
     jar_file_id INT NOT NULL,
-    java_source_file_id INT NOT NULL,
+    java_source_file_version_id INT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (jar_file_id) REFERENCES jar_files(id) ON DELETE CASCADE,
-    FOREIGN KEY (java_source_file_id) REFERENCES java_source_files(id) ON DELETE CASCADE,
-    UNIQUE KEY uk_jar_source (jar_file_id, java_source_file_id)
+    FOREIGN KEY (java_source_file_version_id) REFERENCES java_source_file_versions(id) ON DELETE CASCADE,
+    UNIQUE KEY uk_jar_source_version (jar_file_id, java_source_file_version_id)
 );
 ```
 
-注意：Class文件与Java源码文件是一对一关系，直接在`class_files`表中通过`java_source_file_id`字段关联，无需单独的关联表。
+注意：Class文件与Java源码文件版本是一对一关系，直接在`class_files`表中通过`java_source_file_version_id`字段关联，无需单独的关联表。
 
 ### 3.2 索引设计
 - 服务名称和环境组合唯一索引
 - JAR文件名和服务组合唯一索引
 - Class类名和服务组合唯一索引
 - 源码文件类名唯一索引
+- JAR文件名独立索引（支持跨服务查询）
+- Class类名独立索引（支持跨服务查询）
+- 版本号索引（支持版本管理查询）
 - 性能优化索引（文件哈希、修改时间等）
 - 全文搜索索引（源码内容、类名）
 
@@ -201,8 +236,9 @@ CREATE TABLE java_source_in_jar_files (
    ├── 扫描反编译输出目录
    ├── 提取Java源码文件
    ├── 计算文件哈希和行数
-   ├── 存储到java_source_files表
-   └── 建立关联关系
+   ├── 存储到java_source_files和java_source_file_versions表
+   ├── 建立关联关系
+   └── 支持智能过滤和版本管理
 
 7. 孤立源码清理
    ├── 查找未被引用的源码文件
@@ -229,6 +265,20 @@ python import_jar_files.py --all-services
 # ... 其他脚本
 ```
 
+### 4.3 智能过滤和版本管理
+系统支持多种过滤模式和版本管理功能：
+
+```bash
+# 智能过滤模式
+python import_java_sources.py --service-name dsop_core --jar-name specific.jar --dry-run
+python import_java_sources.py --service-name dsop_core --class-name com.example.Class --dry-run
+python import_java_sources.py --all-services --dry-run
+
+# 版本管理（待实现）
+python manage_versions.py --service-name dsop_core --generate-versions
+python manage_versions.py --all-services --merge-sources
+```
+
 ## 5. 脚本工具
 
 ### 5.1 服务管理脚本
@@ -241,8 +291,9 @@ python import_jar_files.py --all-services
 - **decompile_class_files.py**: Class文件反编译
 
 ### 5.3 源码管理脚本
-- **import_java_sources.py**: 导入Java源码文件
+- **import_java_sources.py**: 导入Java源码文件，支持智能过滤和版本管理
 - **cleanup_orphaned_sources.py**: 清理孤立源码文件
+- **clean_data.py**: 数据清理脚本，支持按外键依赖顺序清理
 
 ### 5.4 配置管理
 - **JSON配置文件**: 服务配置信息
@@ -254,12 +305,14 @@ python import_jar_files.py --all-services
 ### 6.1 关联图
 ```
 services (服务)
-    ├── jar_files (JAR文件)
+    ├── jar_files (JAR文件，支持版本管理)
     │   └── java_source_in_jar_files (多对多关联)
-    │       └── java_source_files (源码)
-    └── class_files (Class文件)
-        └── java_source_file_id (直接关联)
-            └── java_source_files (源码)
+    │       └── java_source_file_versions (源码版本)
+    │           └── java_source_files (源码文件)
+    └── class_files (Class文件，支持版本管理)
+        └── java_source_file_version_id (直接关联)
+            └── java_source_file_versions (源码版本)
+                └── java_source_files (源码文件)
 ```
 
 ### 6.2 数据一致性
@@ -315,23 +368,51 @@ services (服务)
 - 服务状态监控
 - 处理进度跟踪
 
-### 设计片段
+## 10. 版本管理设计
 
-我想对@import_java_sources.py 进行调整，首先我觉得可以将--service-name，--jar-name，--all-services，再增加一个--class-name（过滤class_full_name），四个参数注入到一个过滤器中，过滤器可以根据业务逻辑得到需要扫描的目录，还可以根据过滤条件遍历需要导入的文件。
+### 10.1 版本管理策略
+系统支持基于文件大小变化的智能版本管理：
 
-扫描目录的逻辑为：
- 按照--service-name从服务中获取反编译目录（包括jar_decompile_output_dir和class_decompile_output_dir）的并集，并且能够区分哪些目录是class反编译输出目录，哪些是jar反编译目录。如果指定了--all-services则为所有服务，且所有服务的jar_decompile_output_dir必须一样，class_decompile_output_dir也必须一样，jar_decompile_output_dir和class_decompile_output_dir可以不一样。
+#### 10.1.1 JAR文件版本管理
+- 按JAR名称分组，跨服务管理版本
+- 按最后修改时间升序排序
+- 基于文件大小变化递增版本号
+- 相同大小的JAR文件共享版本号
 
-过滤逻辑为：
-获得文件路径并按照jar或者class反编译目录生成规则进行解析，得到jar名+service_name或class_full_name+service_name，然后根据下面两级筛选条件进行过滤：
-1. 服务层级的筛选
-- 如果指定了--all-services，则不过滤service_name，否则只输出service_name等于指定参数值的文件；
-2. 文件层级的筛选
-- 如果指定了--jar-name，则只处理jar反编译目录，且只处理特定的jar文件的反编译目录
-- 如果指定了--class-name，则只处理class反编译目录，且且只处理class_full_name等于指定class-name的文件
-- 如果两者都未指定，则输出所有文件（即仅按服务筛选规则进行筛选）
-- 如果两者都指定了，则既处理jar反编译目录，也处理处理class反编译目录，并且均按参数指定筛选具体的文件
+#### 10.1.2 Class文件版本管理
+- 按类全名分组，跨服务管理版本
+- 按最后修改时间升序排序
+- 基于文件大小变化递增版本号
+- 相同大小的Class文件共享版本号
 
-通过这个过滤器，能够清晰地知道需要扫描哪些目录，并且能够提前知道要处理哪些文件（以及这些文件的service_name, service_id，类型-jar还是class反编译文件、jar_files或者class_files的id）
+### 10.2 源码合并策略
+- 相同版本号的JAR/Class文件共享源码版本
+- 通过`java_source_file_version_id`关联实现源码复用
+- 减少重复存储，提高查询效率
 
-然后实际进行源码导入时，就可以根据过滤器的结果进行处理了。还可以顺利地增加一个dry-run模式，即进行信息统计，检查各类型、各服务有多少文件要导入，输出统计信息。
+### 10.3 智能过滤系统
+系统实现了完整的智能过滤功能：
+
+#### 10.3.1 过滤器架构
+- `JavaSourceFilter`类：统一过滤逻辑
+- 支持服务级和文件级双重过滤
+- 提供dry-run模式预览
+
+#### 10.3.2 过滤参数
+- `--service-name`: 指定服务名称
+- `--jar-name`: 指定JAR文件名称
+- `--class-name`: 指定类全名
+- `--all-services`: 处理所有服务
+- `--dry-run`: 预览模式，不执行实际导入
+
+#### 10.3.3 过滤逻辑
+1. **服务级过滤**: 根据服务名称筛选
+2. **文件级过滤**: 根据JAR/Class名称筛选
+3. **目录扫描**: 智能识别反编译输出目录
+4. **统计输出**: 提供详细的处理统计信息
+
+### 10.4 进度跟踪系统
+- 使用`tqdm`库提供实时进度条
+- 支持Windows长路径兼容
+- 路径标准化（统一使用Linux风格斜杠）
+- 固定位置进度条，不随日志滚动

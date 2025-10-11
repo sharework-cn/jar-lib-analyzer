@@ -46,10 +46,15 @@ CREATE TABLE jar_files (
     is_third_party BOOLEAN DEFAULT FALSE,
     is_latest BOOLEAN DEFAULT FALSE,
     file_path VARCHAR(500) COMMENT 'JAR文件本地路径',
+    decompile_path VARCHAR(500) COMMENT 'JAR反编译输出目录路径',
+    version_no INT COMMENT '版本号，基于文件大小变化',
+    last_version_no INT COMMENT '最新版本号',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (service_id) REFERENCES services(id) ON DELETE CASCADE,
-    UNIQUE KEY uk_service_jar (service_id, jar_name)
+    UNIQUE KEY uk_service_jar (service_id, jar_name),
+    INDEX idx_jar_name (jar_name),
+    INDEX idx_version_no (version_no)
 );
 
 -- Class files table - Class文件信息表
@@ -62,11 +67,15 @@ CREATE TABLE class_files (
     file_path VARCHAR(500) COMMENT 'Class文件本地路径',
     decompile_path VARCHAR(500) COMMENT 'Class反编译输出目录路径',
     java_source_file_version_id INT COMMENT '关联的Java源码文件版本ID',
+    version_no INT COMMENT '版本号，基于文件大小变化',
+    last_version_no INT COMMENT '最新版本号',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (service_id) REFERENCES services(id) ON DELETE CASCADE,
     FOREIGN KEY (java_source_file_version_id) REFERENCES java_source_file_versions(id) ON DELETE SET NULL,
-    UNIQUE KEY uk_service_class (service_id, class_full_name)
+    UNIQUE KEY uk_service_class (service_id, class_full_name),
+    INDEX idx_class_full_name (class_full_name),
+    INDEX idx_version_no (version_no)
 );
 
 -- Java source files table - Java源码文件表
@@ -132,7 +141,10 @@ CREATE INDEX idx_jar_files_service ON jar_files(service_id);
 CREATE INDEX idx_jar_files_latest ON jar_files(is_latest);
 CREATE INDEX idx_jar_files_third_party ON jar_files(is_third_party);
 CREATE INDEX idx_class_files_service ON class_files(service_id);
-CREATE INDEX idx_class_files_class_name ON class_files(class_full_name);
+-- Note: jar_files.jar_name already has INDEX idx_jar_name
+-- Note: jar_files.version_no already has INDEX idx_version_no
+-- Note: class_files.class_full_name already has INDEX idx_class_full_name
+-- Note: class_files.version_no already has INDEX idx_version_no
 -- Note: java_source_files.class_full_name already has UNIQUE KEY uk_class_full_name
 -- Note: java_source_file_versions.file_hash already has INDEX idx_file_hash
 CREATE INDEX idx_jar_source_jar ON java_source_in_jar_files(jar_file_id);
