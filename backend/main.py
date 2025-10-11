@@ -72,6 +72,8 @@ class JarFile(Base):
     is_latest = Column(Boolean, default=False)
     file_path = Column(String(500))
     decompile_path = Column(String(500))
+    version_no = Column(Integer)
+    last_version_no = Column(Integer)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
@@ -90,6 +92,8 @@ class ClassFile(Base):
     file_path = Column(String(500))
     decompile_path = Column(String(500))
     java_source_file_version_id = Column(Integer, ForeignKey("java_source_file_versions.id"), nullable=True)
+    version_no = Column(Integer)
+    last_version_no = Column(Integer)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
