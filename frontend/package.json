@@ -13,9 +13,12 @@
     "@element-plus/icons-vue": "^2.1.0",
     "axios": "^1.5.0",
     "codemirror": "^6.0.2",
+    "diff2html": "^3.4.52",
     "element-plus": "^2.3.14",
+    "highlight.js": "^11.11.1",
     "prismjs": "^1.29.0",
     "vue": "^3.3.4",
+    "vue-diff": "^1.2.4",
     "vue-router": "^4.2.4"
   },
   "devDependencies": {

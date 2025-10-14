@@ -34,6 +34,14 @@
                 <el-icon><Switch /></el-icon>
                 查看差异
               </el-button>
+              <el-button 
+                v-if="index > 0 && itemType === 'jar'" 
+                size="small"
+                @click="goToUnifiedDiff(version.version_no, versions[index-1].version_no)"
+              >
+                <el-icon><Switch /></el-icon>
+                GitHub风格（单窗格）
+              </el-button>
               <el-button size="small" @click="viewSources(version.version_no)">
                 <el-icon><View /></el-icon>
                 查看源码
@@ -132,6 +140,10 @@ const formatTimeRange = (earliest, latest) => {
 
 const goToDiff = (fromVersion, toVersion) => {
   router.push(`/diff/${itemType.value}/${encodeURIComponent(itemName.value)}/${fromVersion}/${toVersion}`)
+}
+
+const goToUnifiedDiff = (fromVersion, toVersion) => {
+  router.push(`/diff-unified/jar/${encodeURIComponent(itemName.value)}/${fromVersion}/${toVersion}`)
 }
 
 const viewSources = (versionNo) => {
