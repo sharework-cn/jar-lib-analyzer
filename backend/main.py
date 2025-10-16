@@ -17,9 +17,20 @@ import difflib
 # Database configuration
 DATABASE_URL = os.getenv("DATABASE_URL", "mysql+pymysql://jal:271828@172.30.80.95:32306/jal")
 
-# Create database engine
-engine = create_engine(DATABASE_URL)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+# Create database engine with connection pooling and error handling
+try:
+    engine = create_engine(DATABASE_URL, pool_pre_ping=True, pool_recycle=300)
+    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    # Test database connection
+    with engine.connect() as conn:
+        from sqlalchemy import text
+        conn.execute(text("SELECT 1"))
+    print("Database connection successful")
+except Exception as e:
+    print(f"Database connection failed: {e}")
+    print("Starting server without database connection...")
+    engine = None
+    SessionLocal = None
 
 # Create FastAPI app
 app = FastAPI(
@@ -38,7 +49,13 @@ app.add_middleware(
 )
 
 # Mount static files
-app.mount("/static", StaticFiles(directory="frontend/dist"), name="static")
+import os
+frontend_dist_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "dist")
+if os.path.exists(frontend_dist_path):
+    app.mount("/static", StaticFiles(directory=frontend_dist_path), name="static")
+    print(f"Static files mounted from: {frontend_dist_path}")
+else:
+    print(f"Warning: Frontend dist directory not found: {frontend_dist_path}")
 
 # Database models
 Base = declarative_base()
@@ -208,6 +225,8 @@ class DifferenceResponse(BaseModel):
 
 # Dependency to get database session
 def get_db():
+    if SessionLocal is None:
+        raise HTTPException(status_code=503, detail="Database not available")
     db = SessionLocal()
     try:
         yield db
@@ -509,11 +528,19 @@ async def get_class_versions(class_name: str):
         db.close()
 
 @app.get("/api/jars/{jar_name}/diff")
-async def get_jar_diff(jar_name: str, 
-                      from_version: int = Query(..., description="源版本号"),
-                      to_version: int = Query(..., description="目标版本号"),
-                      file_path: Optional[str] = Query(None, description="特定文件路径")):
-    """获取JAR文件版本差异"""
+async def get_jar_diff(
+    jar_name: str,
+    from_version: int = Query(..., description="源版本号"),
+    to_version: int = Query(..., description="目标版本号"),
+    file_path: Optional[str] = Query(None, description="特定文件路径"),
+    resp_format: str = Query("structured", alias="format", description="返回格式: structured 或 unified"),
+    include: str = Query("all", description="unified模式返回内容: diff|content|all")
+):
+    """获取JAR文件版本差异
+
+    - structured: 保持原有结构化返回 (file_changes, file_diffs 等)
+    - unified: 返回适配diff2html的单文件统一diff文本，置于 files[*].unified_diff
+    """
     db = SessionLocal()
     try:
         # 获取两个版本的源码文件
@@ -529,20 +556,49 @@ async def get_jar_diff(jar_name: str,
             JarFile.is_third_party == False
         ).all()
         
-        # 构建文件映射
-        from_files = {f.file_path: f for f in from_sources}
-        to_files = {f.file_path: f for f in to_sources}
+        # 构建文件映射（按类名匹配，忽略服务器路径差异）
+        def _extract_class_name(file_path: str) -> str:
+            """从文件路径中提取类全名"""
+            if not file_path:
+                return file_path
+            
+            # 查找包名开始位置
+            path_parts = file_path.replace('\\', '/').split('/')
+            class_name = ""
+            package_parts = []
+            
+            # 找到包名开始位置（com, org等）
+            for i, part in enumerate(path_parts):
+                if part in ['com', 'org', 'cn', 'net', 'io', 'java', 'javax']:
+                    # 从包名开始到文件名前
+                    package_parts = path_parts[i:-1]  # 排除文件名
+                    if path_parts[-1].endswith('.java'):
+                        class_name = path_parts[-1][:-5]  # 移除.java后缀
+                    break
+            
+            if package_parts and class_name:
+                return '.'.join(package_parts) + '.' + class_name
+            elif class_name:
+                return class_name
+            else:
+                return file_path  # 回退到原路径
+        
+        from_files = {_extract_class_name(f.file_path): f for f in from_sources}
+        to_files = {_extract_class_name(f.file_path): f for f in to_sources}
         
         # 计算差异
         file_changes = []
         file_diffs = []
         file_contents = {}
+        unified_files: List[Dict[str, Any]] = []
         
         all_files = set(from_files.keys()) | set(to_files.keys())
         
-        for current_file_path in all_files:
-            from_file = from_files.get(current_file_path)
-            to_file = to_files.get(current_file_path)
+        for class_name in all_files:
+            from_file = from_files.get(class_name)
+            to_file = to_files.get(class_name)
+            # 显示路径：将类名转换为相对路径格式
+            display_path = class_name.replace('.', '/') + '.java'
             
             if not from_file and to_file:
                 # 新增文件
@@ -574,7 +630,7 @@ async def get_jar_diff(jar_name: str,
             change_percentage = (changes / max(len(from_file.file_content.split('\n')) if from_file else 1, 1)) * 100
             
             file_changes.append(FileChange(
-                file_path=current_file_path,
+                file_path=display_path,
                 change_type=change_type,
                 additions=additions,
                 deletions=deletions,
@@ -588,13 +644,103 @@ async def get_jar_diff(jar_name: str,
             if from_file and to_file and from_file.file_content != to_file.file_content:
                 hunks = generate_diff_hunks(from_file.file_content, to_file.file_content)
                 file_diffs.append(FileDiff(
-                    file_path=current_file_path,
+                    file_path=display_path,
                     hunks=hunks
                 ))
+
+                # 生成unified diff文本 (适配diff2html)
+                if resp_format == "unified":
+                    from_lines = (from_file.file_content or "").split('\n')
+                    to_lines = (to_file.file_content or "").split('\n')
+                    # 为更好识别，补充 fromfile/tofile 以及文件头
+                    unified_list = list(
+                        difflib.unified_diff(
+                            from_lines,
+                            to_lines,
+                            fromfile=f"a/{display_path}",
+                            tofile=f"b/{display_path}",
+                            lineterm=""
+                        )
+                    )
+                    # 追加传统diff头，有助于diff2html识别多个文件
+                    unified_text = []
+                    unified_text.append(f"diff --git a/{display_path} b/{display_path}")
+                    unified_text.append(f"--- a/{display_path}")
+                    unified_text.append(f"+++ b/{display_path}")
+                    # 过滤掉unified_list中重复的---和+++行
+                    filtered_unified = [line for line in unified_list if not line.startswith('---') and not line.startswith('+++')]
+                    unified_text.extend(filtered_unified)
+                    unified_str = "\n".join(unified_text)
+                    unified_files.append({
+                        "file_path": display_path,
+                        "change_type": change_type,
+                        "additions": additions,
+                        "deletions": deletions,
+                        "unified_diff": unified_str,
+                        "language": "java"
+                    })
+            elif (from_file and not to_file) and resp_format == "unified":
+                # 文件被删除：生成只包含删除的diff（对比 /dev/null）
+                from_lines = (from_file.file_content or "").split('\n')
+                to_lines = []
+                unified_list = list(
+                    difflib.unified_diff(
+                        from_lines,
+                        to_lines,
+                        fromfile=f"a/{display_path}",
+                        tofile=f"b/{display_path}",
+                        lineterm=""
+                    )
+                )
+                unified_text = []
+                unified_text.append(f"diff --git a/{display_path} b/{display_path}")
+                unified_text.append(f"--- a/{display_path}")
+                unified_text.append(f"+++ b/{display_path}")
+                # 过滤掉unified_list中重复的---和+++行
+                filtered_unified = [line for line in unified_list if not line.startswith('---') and not line.startswith('+++')]
+                unified_text.extend(filtered_unified)
+                unified_str = "\n".join(unified_text)
+                unified_files.append({
+                    "file_path": display_path,
+                    "change_type": change_type,
+                    "additions": 0,
+                    "deletions": deletions,
+                    "unified_diff": unified_str,
+                    "language": "java"
+                })
+            elif (to_file and not from_file) and resp_format == "unified":
+                # 新增文件：生成只包含新增的diff（对比 /dev/null）
+                from_lines = []
+                to_lines = (to_file.file_content or "").split('\n')
+                unified_list = list(
+                    difflib.unified_diff(
+                        from_lines,
+                        to_lines,
+                        fromfile=f"a/{display_path}",
+                        tofile=f"b/{display_path}",
+                        lineterm=""
+                    )
+                )
+                unified_text = []
+                unified_text.append(f"diff --git a/{display_path} b/{display_path}")
+                unified_text.append(f"--- a/{display_path}")
+                unified_text.append(f"+++ b/{display_path}")
+                # 过滤掉unified_list中重复的---和+++行
+                filtered_unified = [line for line in unified_list if not line.startswith('---') and not line.startswith('+++')]
+                unified_text.extend(filtered_unified)
+                unified_str = "\n".join(unified_text)
+                unified_files.append({
+                    "file_path": display_path,
+                    "change_type": change_type,
+                    "additions": additions,
+                    "deletions": 0,
+                    "unified_diff": unified_str,
+                    "language": "java"
+                })
             
             # 存储文件内容用于CodeMirror显示
-            if current_file_path not in file_contents:
-                file_contents[current_file_path] = {
+            if display_path not in file_contents:
+                file_contents[display_path] = {
                     "from_content": from_file.file_content if from_file else "",
                     "to_content": to_file.file_content if to_file else ""
                 }
@@ -611,34 +757,48 @@ async def get_jar_diff(jar_name: str,
             net_change=total_insertions - total_deletions
         )
         
-        # 如果请求特定文件，返回该文件的内容
+        # 如果请求特定文件
         if file_path:
-            if file_path in file_contents:
-                return {
-                    "from_content": file_contents[file_path]["from_content"],
-                    "to_content": file_contents[file_path]["to_content"]
-                }
+            if resp_format == "unified":
+                # 返回该文件的unified diff
+                f = next((f for f in unified_files if f["file_path"] == file_path), None)
+                return f or {"file_path": file_path, "unified_diff": ""}
             else:
-                return {
-                    "from_content": "",
-                    "to_content": ""
-                }
+                if file_path in file_contents:
+                    return {
+                        "from_content": file_contents[file_path]["from_content"],
+                        "to_content": file_contents[file_path]["to_content"]
+                    }
+                else:
+                    return {
+                        "from_content": "",
+                        "to_content": ""
+                    }
         
-        return VersionDiff(
-            from_version=from_version,
-            to_version=to_version,
-            file_changes=file_changes,
-            summary=summary,
-            file_diffs=file_diffs
-        )
+        if resp_format == "unified":
+            # 统一diff返回结构
+            return {
+                "from_version": from_version,
+                "to_version": to_version,
+                "summary": summary.model_dump() if hasattr(summary, "model_dump") else summary.__dict__,
+                "files": unified_files
+            }
+        else:
+            return VersionDiff(
+                from_version=from_version,
+                to_version=to_version,
+                file_changes=file_changes,
+                summary=summary,
+                file_diffs=file_diffs
+            )
         
     finally:
         db.close()
 
 def generate_diff_hunks(from_content: str, to_content: str) -> List[DiffHunk]:
-    """生成Git风格的差异块"""
-    from_lines = from_content.split('\n')
-    to_lines = to_content.split('\n')
+    """生成GitHub风格的差异块"""
+    from_lines = from_content.split('\n') if from_content else []
+    to_lines = to_content.split('\n') if to_content else []
     
     # 使用difflib生成统一差异格式
     diff = list(difflib.unified_diff(from_lines, to_lines, lineterm=''))
@@ -646,6 +806,8 @@ def generate_diff_hunks(from_content: str, to_content: str) -> List[DiffHunk]:
     hunks = []
     current_hunk = None
     current_lines = []
+    old_line_num = 0
+    new_line_num = 0
     
     for line in diff:
         if line.startswith('@@'):
@@ -654,32 +816,52 @@ def generate_diff_hunks(from_content: str, to_content: str) -> List[DiffHunk]:
                 current_hunk.lines = current_lines
                 hunks.append(current_hunk)
             
-            current_hunk = DiffHunk(header=line, lines=[])
-            current_lines = []
+            # 解析差异块头部信息
+            import re
+            match = re.match(r'@@ -(\d+),?(\d*) \+(\d+),?(\d*) @@', line)
+            if match:
+                old_start = int(match.group(1))
+                old_count = int(match.group(2)) if match.group(2) else 0
+                new_start = int(match.group(3))
+                new_count = int(match.group(4)) if match.group(4) else 0
+                
+                # 生成更友好的差异块头部
+                old_info = f"{old_start},{old_count}" if old_count > 0 else str(old_start)
+                new_info = f"{new_start},{new_count}" if new_count > 0 else str(new_start)
+                header = f"@@ -{old_info} +{new_info} @@"
+                
+                current_hunk = DiffHunk(header=header, lines=[])
+                current_lines = []
+                old_line_num = old_start
+                new_line_num = new_start
         elif line.startswith('+') and not line.startswith('+++'):
             # 新增行
             current_lines.append(DiffLine(
                 old_line=None,
-                new_line=len(current_lines) + 1,
+                new_line=new_line_num,
                 type="added",
                 content=line[1:]
             ))
+            new_line_num += 1
         elif line.startswith('-') and not line.startswith('---'):
             # 删除行
             current_lines.append(DiffLine(
-                old_line=len(current_lines) + 1,
+                old_line=old_line_num,
                 new_line=None,
                 type="removed",
                 content=line[1:]
             ))
-        elif not line.startswith('+++') and not line.startswith('---'):
+            old_line_num += 1
+        elif not line.startswith('+++') and not line.startswith('---') and line.strip():
             # 上下文行
             current_lines.append(DiffLine(
-                old_line=len(current_lines) + 1,
-                new_line=len(current_lines) + 1,
+                old_line=old_line_num,
+                new_line=new_line_num,
                 type="context",
                 content=line[1:] if line.startswith(' ') else line
             ))
+            old_line_num += 1
+            new_line_num += 1
     
     # 添加最后一个差异块
     if current_hunk:
