@@ -22,6 +22,10 @@
               <div class="version-meta">
                 <el-tag size="small" type="info">{{ formatFileSize(version.file_size) }}</el-tag>
                 <span class="version-count">{{ version.file_count }}个文件</span>
+                <el-tag v-if="version.source_hash" size="small" type="success" class="source-hash-tag">
+                  <el-icon><Key /></el-icon>
+                  {{ version.source_hash.substring(0, 8) }}...
+                </el-tag>
               </div>
             </div>
             <div class="version-actions">
@@ -89,7 +93,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Clock, OfficeBuilding, Switch, View } from '@element-plus/icons-vue'
+import { Clock, OfficeBuilding, Switch, View, Key } from '@element-plus/icons-vue'
 import { getVersionHistory } from '@/api/versions'
 
 const route = useRoute()
@@ -252,6 +256,12 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.source-hash-tag {
+  font-family: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', Menlo, monospace;
+  font-size: 11px;
 }
 
 .version-count {

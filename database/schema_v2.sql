@@ -51,6 +51,7 @@ CREATE TABLE jar_files (
     last_version_no INT COMMENT '最新版本号',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    source_hash VARCHAR(64) COMMENT '源码内容哈希值',
     FOREIGN KEY (service_id) REFERENCES services(id) ON DELETE CASCADE,
     UNIQUE KEY uk_service_jar (service_id, jar_name),
     INDEX idx_jar_name (jar_name),

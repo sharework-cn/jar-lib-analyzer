@@ -2,12 +2,13 @@
 # -*- coding: utf-8 -*-
 """
 Version Management Script for Java Library Analyzer
-Manages JAR and Class file versions based on file size changes
+Manages JAR and Class file versions based on file size changes or source content hash
 """
 
 import os
 import sys
 import logging
+import hashlib
 from collections import defaultdict
 from sqlalchemy import create_engine, text, func
 from sqlalchemy.orm import sessionmaker
@@ -31,9 +32,9 @@ class VersionManager:
         """Get database session"""
         return self.SessionLocal()
     
-    def generate_jar_versions(self, service_name=None):
-        """Generate versions for JAR files based on file size changes and merge source mappings"""
-        logger.info("Starting JAR version generation and source merging...")
+    def generate_jar_versions(self, service_name=None, compares_by='file-size'):
+        """Generate versions for JAR files based on file size changes or source content hash and merge source mappings"""
+        logger.info(f"Starting JAR version generation and source merging (compares-by: {compares_by})...")
         
         db = self.get_db_session()
         
@@ -50,6 +51,13 @@ class VersionManager:
             jar_files = query.all()
             logger.info(f"Found {len(jar_files)} non-third-party JAR files")
             
+            # If compares_by is source-hash, calculate source hashes first
+            if compares_by == 'source-hash':
+                logger.info("Calculating source hashes for all JAR files...")
+                self._calculate_source_hashes(db, jar_files)
+                db.commit()  # Commit source hash updates
+                logger.info("Source hash calculation completed")
+            
             # Group by jar_name
             jar_groups = defaultdict(list)
             for jar_file in jar_files:
@@ -64,8 +72,11 @@ class VersionManager:
                 # Sort by last_modified (ascending)
                 jars.sort(key=lambda x: x.last_modified or x.created_at)
                 
-                # Generate versions based on file size changes
-                versions = self._generate_versions_by_size(jars)
+                # Generate versions based on comparison method
+                if compares_by == 'source-hash':
+                    versions = self._generate_versions_by_source_hash(jars)
+                else:  # file-size
+                    versions = self._generate_versions_by_size(jars)
                 
                 # Update database and merge source mappings
                 merged_count = self._update_jar_versions_and_merge_sources(db, jars, versions)
@@ -147,6 +158,46 @@ class VersionManager:
         finally:
             db.close()
     
+    def _calculate_source_hashes(self, db, jar_files):
+        """Calculate source hash for all JAR files"""
+        logger.info("Clearing existing source hashes...")
+        
+        # Clear all existing source hashes
+        db.query(JarFile).update({'source_hash': None})
+        
+        logger.info("Calculating new source hashes...")
+        
+        for jar_file in jar_files:
+            # Get all source files for this JAR
+            source_mappings = db.execute(text("""
+                SELECT jsf.class_full_name, jsfv.file_hash
+                FROM java_source_in_jar_files jsij
+                JOIN java_source_file_versions jsfv ON jsij.java_source_file_version_id = jsfv.id
+                JOIN java_source_files jsf ON jsfv.java_source_file_id = jsf.id
+                WHERE jsij.jar_file_id = :jar_id
+                ORDER BY jsf.class_full_name ASC
+            """), {"jar_id": jar_file.id}).fetchall()
+            
+            if not source_mappings:
+                logger.warning(f"No source files found for JAR {jar_file.jar_name} (ID: {jar_file.id})")
+                continue
+            
+            # Build hash input string
+            hash_input_parts = []
+            for mapping in source_mappings:
+                class_name = mapping.class_full_name or ""
+                file_hash = mapping.file_hash or ""
+                hash_input_parts.append(f"{class_name}:{file_hash}")
+            
+            # Calculate source hash
+            hash_input = "\n".join(hash_input_parts)
+            source_hash = hashlib.sha256(hash_input.encode('utf-8')).hexdigest()
+            
+            # Update JAR file with source hash
+            jar_file.source_hash = source_hash
+            
+            logger.debug(f"JAR {jar_file.jar_name}: {len(source_mappings)} source files, hash: {source_hash[:8]}...")
+    
     def _generate_versions_by_size(self, files):
         """Generate version numbers based on file size - same size = same version"""
         if not files:
@@ -168,6 +219,35 @@ class VersionManager:
         for file_obj in files:
             current_size = file_obj.file_size or 0
             versions.append(size_to_version[current_size])
+        
+        return versions
+    
+    def _generate_versions_by_source_hash(self, files):
+        """Generate version numbers based on source hash - same hash = same version"""
+        if not files:
+            return []
+        
+        # Create a mapping of source hash to version number
+        hash_to_version = {}
+        current_version = 1
+        
+        # First pass: assign version numbers to unique hashes
+        for file_obj in files:
+            current_hash = file_obj.source_hash
+            if current_hash and current_hash not in hash_to_version:
+                hash_to_version[current_hash] = current_version
+                current_version += 1
+        
+        # Second pass: assign version numbers to files based on their hash
+        versions = []
+        for file_obj in files:
+            current_hash = file_obj.source_hash
+            if current_hash:
+                versions.append(hash_to_version[current_hash])
+            else:
+                # If no hash, assign a unique version
+                versions.append(current_version)
+                current_version += 1
         
         return versions
     
@@ -336,6 +416,8 @@ def main():
     parser.add_argument('--service-name', help='Process specific service only')
     parser.add_argument('--generate-jar-versions', action='store_true', help='Generate JAR versions and merge source mappings')
     parser.add_argument('--generate-class-versions', action='store_true', help='Generate Class versions and merge source mappings')
+    parser.add_argument('--compares-by', choices=['file-size', 'source-hash'], default='file-size',
+                       help='Comparison method for version generation (default: file-size)')
     parser.add_argument('--stats-only', action='store_true', help='Show statistics only')
     
     args = parser.parse_args()
@@ -350,7 +432,7 @@ def main():
             logger.info(f"Classes: {stats['classes']['total_files']} files, {stats['classes']['unique_names']} unique names, {stats['classes']['with_versions']} with versions")
         else:
             if args.generate_jar_versions:
-                manager.generate_jar_versions(args.service_name)
+                manager.generate_jar_versions(args.service_name, args.compares_by)
             
             if args.generate_class_versions:
                 manager.generate_class_versions(args.service_name)
