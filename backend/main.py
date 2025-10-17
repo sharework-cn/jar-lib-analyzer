@@ -485,6 +485,7 @@ class FileChange(BaseModel):
     change_percentage: float
     size_before: int
     size_after: int
+    class_full_name: Optional[str] = None
 
 class DiffSummary(BaseModel):
     total_files: int
@@ -663,12 +664,27 @@ async def get_jar_source_file_content(
     db: Session = Depends(get_db)
 ):
     """Get specific JAR source file content"""
+    # 首先尝试通过file_path精确匹配
     source_file = db.query(JavaSourceFileVersion).join(JavaSourceInJarFile).join(JarFile).filter(
         JarFile.jar_name == jar_name,
         JarFile.version_no == version_no,
         JavaSourceFileVersion.file_path == file_path,
         JarFile.is_third_party == False
     ).first()
+    
+    # 如果精确匹配失败，尝试通过类名匹配
+    if not source_file:
+        # 从file_path中提取类名（去掉.java后缀，将/替换为.）
+        class_name = file_path.replace('.java', '').replace('/', '.')
+        
+        source_file = db.query(JavaSourceFileVersion).join(JavaSourceInJarFile).join(JarFile).join(
+            JavaSourceFile, JavaSourceFileVersion.java_source_file_id == JavaSourceFile.id
+        ).filter(
+            JarFile.jar_name == jar_name,
+            JarFile.version_no == version_no,
+            JavaSourceFile.class_full_name == class_name,
+            JarFile.is_third_party == False
+        ).first()
     
     if not source_file:
         raise HTTPException(status_code=404, detail="Source file not found")
@@ -1048,7 +1064,8 @@ async def get_jar_diff(
                     changes=changes,
                     change_percentage=round(change_percentage, 1),
                     size_before=from_file.file_size if from_file else 0,
-                    size_after=to_file.file_size if to_file else 0
+                    size_after=to_file.file_size if to_file else 0,
+                    class_full_name=class_name
                 ))
             
             # 生成差异内容
@@ -1090,7 +1107,8 @@ async def get_jar_diff(
                             "additions": additions,
                             "deletions": deletions,
                             "unified_diff": unified_str,
-                            "language": "java"
+                            "language": "java",
+                            "class_full_name": class_name
                         })
                 else:
                     # 文件无差异，但仍要列出
@@ -1101,7 +1119,8 @@ async def get_jar_diff(
                             "additions": 0,
                             "deletions": 0,
                             "unified_diff": "",  # 无差异时不显示diff内容
-                            "language": "java"
+                            "language": "java",
+                            "class_full_name": class_name
                         })
             elif (from_file and not to_file) and resp_format == "unified":
                 # 文件被删除：生成只包含删除的diff（对比 /dev/null）
@@ -1130,7 +1149,8 @@ async def get_jar_diff(
                     "additions": 0,
                     "deletions": deletions,
                     "unified_diff": unified_str,
-                    "language": "java"
+                    "language": "java",
+                    "class_full_name": class_name
                 })
             elif (to_file and not from_file) and resp_format == "unified":
                 # 新增文件：生成只包含新增的diff（对比 /dev/null）
@@ -1159,7 +1179,8 @@ async def get_jar_diff(
                     "additions": additions,
                     "deletions": 0,
                     "unified_diff": unified_str,
-                    "language": "java"
+                    "language": "java",
+                    "class_full_name": class_name
                 })
             
             # 存储文件内容用于CodeMirror显示

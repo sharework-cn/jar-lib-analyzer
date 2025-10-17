@@ -22,17 +22,52 @@
         <div v-for="f in filteredFiles" :key="f.file_path" class="file-block">
           <div class="file-header">
             <h4>{{ f.file_path }}</h4>
-            <div class="file-stats">
-              <span v-if="f.change_type === 'unchanged'" class="stat unchanged">无变化</span>
-              <template v-else>
-                <span class="stat added">+{{ f.additions }}</span>
-                <span class="stat removed">-{{ f.deletions }}</span>
-              </template>
+            <div class="file-header-right">
+              <div class="file-stats">
+                <span v-if="f.change_type === 'unchanged'" class="stat unchanged">无变化</span>
+                <template v-else>
+                  <span class="stat added">+{{ f.additions }}</span>
+                  <span class="stat removed">-{{ f.deletions }}</span>
+                </template>
+              </div>
+              <div class="file-actions" v-if="itemType === 'jar'">
+                <el-button 
+                  type="primary" 
+                  link 
+                  size="small"
+                  @click="viewSource(fromVersion, f.class_full_name)"
+                >
+                  查看旧版本源码
+                </el-button>
+                <el-button 
+                  type="primary" 
+                  link 
+                  size="small"
+                  @click="viewSource(toVersion, f.class_full_name)"
+                >
+                  查看新版本源码
+                </el-button>
+              </div>
             </div>
           </div>
           <Diff2HtmlBlock v-if="f.unified_diff" :unified-diff="f.unified_diff" :file-path="f.file_path" />
         </div>
     </div>
+    
+    <!-- 源码查看弹窗 -->
+    <el-dialog
+      v-model="sourceDialogVisible"
+      :title="selectedFile ? `${selectedFile.class_full_name} - Version ${selectedFile.version}` : ''"
+      width="80%"
+      :close-on-click-modal="false"
+    >
+      <div class="source-content">
+        <pre><code>{{ selectedFileContent }}</code></pre>
+      </div>
+      <template #footer>
+        <el-button @click="sourceDialogVisible = false">Close</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -41,6 +76,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import Diff2HtmlBlock from '@/components/Diff2HtmlBlock.vue'
 import axios from 'axios'
+import { ElMessage } from 'element-plus'
 
 const route = useRoute()
 const loading = ref(true)
@@ -48,6 +84,9 @@ const files = ref([])
 const summary = ref(null)
 const keyword = ref('')
 const showAllFiles = ref(false)
+const sourceDialogVisible = ref(false)
+const selectedFile = ref(null)
+const selectedFileContent = ref('')
 
 const itemType = computed(() => route.params.type)
 const itemName = computed(() => decodeURIComponent(route.params.name))
@@ -82,6 +121,31 @@ const load = async () => {
   }
 }
 
+const viewSource = async (version, classFullName) => {
+  if (itemType.value === 'jar' && itemName.value) {
+    try {
+      // 将类名转换为文件路径格式
+      const filePath = classFullName.replace(/\./g, '/') + '.java'
+      
+      // 获取源码内容
+      const response = await axios.get(`/api/jars/${encodeURIComponent(itemName.value)}/sources/${version}/content`, {
+        params: { file_path: filePath }
+      })
+      
+      // 设置弹窗内容
+      selectedFile.value = {
+        class_full_name: classFullName,
+        version: version
+      }
+      selectedFileContent.value = response.data.content || ''
+      sourceDialogVisible.value = true
+    } catch (error) {
+      console.error('Failed to load source content:', error)
+      ElMessage.error('Failed to load source content')
+    }
+  }
+}
+
 onMounted(load)
 </script>
 
@@ -97,6 +161,34 @@ onMounted(load)
 .toolbar { display: flex; gap: 12px; margin: 12px 0; }
 .file-block { margin-bottom: 24px; border: 1px solid #d0d7de; border-radius: 6px; overflow: hidden; }
 .file-header { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: #f6f8fa; border-bottom: 1px solid #d0d7de; }
+.file-header-right { display: flex; align-items: center; gap: 1rem; }
+.file-stats { display: flex; gap: 8px; }
+.file-actions { display: flex; gap: 0.5rem; }
 .file-header h4 { margin: 0; font-family: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', Menlo, monospace; }
 .loading { padding: 24px; }
+
+.source-content {
+  max-height: 70vh;
+  overflow: auto;
+  background: #f8f9fa;
+  border-radius: 6px;
+  padding: 16px;
+}
+
+.source-content pre {
+  margin: 0;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 13px;
+  line-height: 1.4;
+  color: #24292f;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.source-content code {
+  background: transparent;
+  padding: 0;
+  border: none;
+  font-family: inherit;
+}
 </style>

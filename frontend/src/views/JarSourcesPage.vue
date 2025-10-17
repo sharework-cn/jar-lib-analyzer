@@ -100,6 +100,7 @@ const selectedFileContent = ref('')
 // Computed properties
 const jarName = computed(() => decodeURIComponent(route.params.jarName))
 const versionNo = computed(() => parseInt(route.params.versionNo))
+const targetFile = computed(() => route.query.class ? decodeURIComponent(route.query.class) : null)
 
 // Methods
 const loadSourceFiles = async () => {
@@ -107,6 +108,16 @@ const loadSourceFiles = async () => {
   try {
     const data = await getJarSourceFiles(jarName.value, versionNo.value)
     sourceFiles.value = data
+    
+    // 如果有目标文件，自动打开它
+    if (targetFile.value) {
+      const targetSourceFile = data.find(file => 
+        file.java_source_file && file.java_source_file.class_full_name === targetFile.value
+      )
+      if (targetSourceFile) {
+        await viewSourceFile(targetSourceFile)
+      }
+    }
   } catch (error) {
     console.error('Failed to load source files:', error)
     ElMessage.error('Failed to load source files')
