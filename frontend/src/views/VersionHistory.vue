@@ -39,7 +39,7 @@
                 v-if="index > 0" 
                 type="primary" 
                 size="small"
-                @click="goToDiff(version.version_no, versions[index-1].version_no)"
+                @click="goToDiff(versions[index-1].version_no, version.version_no)"
               >
                 <el-icon><Switch /></el-icon>
                 View Differences
@@ -47,7 +47,7 @@
               <el-button 
                 v-if="index > 0" 
                 size="small"
-                @click="goToUnifiedDiff(version.version_no, versions[index-1].version_no)"
+                @click="goToUnifiedDiff(versions[index-1].version_no, version.version_no)"
               >
                 <el-icon><Switch /></el-icon>
                 GitHub Style (Single Pane)
