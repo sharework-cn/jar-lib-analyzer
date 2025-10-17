@@ -221,7 +221,7 @@ const viewVersionDiff = (row, type) => {
   const latestVersion = row.last_version_no
   
   if (type === 'jar') {
-    router.push(`/diff/jar/${row.jar_name}/${currentVersion}/${latestVersion}`)
+    router.push(`/diff-unified/jar/${row.jar_name}/${currentVersion}/${latestVersion}`)
   } else if (type === 'class') {
     router.push(`/diff/class/${row.class_full_name}/${currentVersion}/${latestVersion}`)
   }

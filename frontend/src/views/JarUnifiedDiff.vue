@@ -31,22 +31,34 @@
                 </template>
               </div>
               <div class="file-actions" v-if="itemType === 'jar'">
-                <el-button 
-                  type="primary" 
-                  link 
-                  size="small"
-                  @click="viewSource(fromVersion, f.class_full_name)"
-                >
-                  查看旧版本源码
-                </el-button>
-                <el-button 
-                  type="primary" 
-                  link 
-                  size="small"
-                  @click="viewSource(toVersion, f.class_full_name)"
-                >
-                  查看新版本源码
-                </el-button>
+                <template v-if="f.change_type === 'unchanged'">
+                  <el-button 
+                    type="primary" 
+                    link 
+                    size="small"
+                    @click="viewSource(fromVersion, f.class_full_name)"
+                  >
+                    查看源码
+                  </el-button>
+                </template>
+                <template v-else>
+                  <el-button 
+                    type="primary" 
+                    link 
+                    size="small"
+                    @click="viewSource(fromVersion, f.class_full_name)"
+                  >
+                    查看旧版本源码
+                  </el-button>
+                  <el-button 
+                    type="primary" 
+                    link 
+                    size="small"
+                    @click="viewSource(toVersion, f.class_full_name)"
+                  >
+                    查看新版本源码
+                  </el-button>
+                </template>
               </div>
             </div>
           </div>
