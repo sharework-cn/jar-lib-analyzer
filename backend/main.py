@@ -1027,18 +1027,21 @@ async def get_jar_diff(
                 continue
             
             changes = additions + deletions
-            change_percentage = (changes / max(len(from_file.file_content.split('\n')) if from_file else 1, 1)) * 100
             
-            file_changes.append(FileChange(
-                file_path=display_path,
-                change_type=change_type,
-                additions=additions,
-                deletions=deletions,
-                changes=changes,
-                change_percentage=round(change_percentage, 1),
-                size_before=from_file.file_size if from_file else 0,
-                size_after=to_file.file_size if to_file else 0
-            ))
+            # 只有当文件真正有变更时才添加到file_changes列表
+            if changes > 0:
+                change_percentage = (changes / max(len(from_file.file_content.split('\n')) if from_file else 1, 1)) * 100
+                
+                file_changes.append(FileChange(
+                    file_path=display_path,
+                    change_type=change_type,
+                    additions=additions,
+                    deletions=deletions,
+                    changes=changes,
+                    change_percentage=round(change_percentage, 1),
+                    size_before=from_file.file_size if from_file else 0,
+                    size_after=to_file.file_size if to_file else 0
+                ))
             
             # 生成差异内容
             if from_file and to_file:
@@ -1164,7 +1167,7 @@ async def get_jar_diff(
         
         summary = DiffSummary(
             total_files=len(all_files),
-            files_changed=len([fc for fc in file_changes if fc.change_type != "context"]),
+            files_changed=len(file_changes),
             insertions=total_insertions,
             deletions=total_deletions,
             net_change=total_insertions - total_deletions
