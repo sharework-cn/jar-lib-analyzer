@@ -44,7 +44,7 @@
                 </el-button>
               </template>
             </el-table-column>
-            <el-table-column prop="version_no" label="Version" width="140" align="center">
+            <el-table-column prop="version_no" label="Version" width="180" align="center">
               <template #default="{ row }">
                 <div class="version-cell">
                   <span class="version-number">{{ row.version_no }}</span>
@@ -52,7 +52,8 @@
                     v-if="!isLatestVersion(row, 'jar')" 
                     type="warning" 
                     size="small" 
-                    class="version-tag"
+                    class="version-tag clickable-tag"
+                    @click="viewVersionDiff(row, 'jar')"
                   >
                     Not Latest
                   </el-tag>
@@ -92,7 +93,7 @@
                 </el-button>
               </template>
             </el-table-column>
-            <el-table-column prop="version_no" label="Version" width="140" align="center">
+            <el-table-column prop="version_no" label="Version" width="180" align="center">
               <template #default="{ row }">
                 <div class="version-cell">
                   <span class="version-number">{{ row.version_no }}</span>
@@ -100,7 +101,8 @@
                     v-if="!isLatestVersion(row, 'class')" 
                     type="warning" 
                     size="small" 
-                    class="version-tag"
+                    class="version-tag clickable-tag"
+                    @click="viewVersionDiff(row, 'class')"
                   >
                     Not Latest
                   </el-tag>
@@ -214,6 +216,17 @@ const formatDate = (dateString) => {
   return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`
 }
 
+const viewVersionDiff = (row, type) => {
+  const currentVersion = row.version_no
+  const latestVersion = row.last_version_no
+  
+  if (type === 'jar') {
+    router.push(`/diff/jar/${row.jar_name}/${currentVersion}/${latestVersion}`)
+  } else if (type === 'class') {
+    router.push(`/diff/class/${row.class_full_name}/${currentVersion}/${latestVersion}`)
+  }
+}
+
 // Lifecycle
 onMounted(() => {
   loadServiceDetail()
@@ -318,6 +331,16 @@ onMounted(() => {
 .version-tag {
   font-size: 0.75rem;
   animation: pulse 2s infinite;
+}
+
+.clickable-tag {
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.clickable-tag:hover {
+  transform: scale(1.05);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 }
 
 @keyframes pulse {

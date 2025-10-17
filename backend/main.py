@@ -457,13 +457,17 @@ class SearchResult(BaseModel):
     classes: List[Dict[str, Any]]
     jar_sources: List[Dict[str, Any]]
 
+class ServiceInfo(BaseModel):
+    id: int
+    name: str
+
 class VersionInfo(BaseModel):
     version_no: int
     file_size: int
     earliest_time: str
     latest_time: str
     service_count: int
-    services: List[str]
+    services: List[ServiceInfo]
     file_count: int
     source_hash: Optional[str] = None  # 添加source_hash字段
 
@@ -690,7 +694,7 @@ async def get_jar_versions(jar_name: str):
         versions = []
         for row in versions_query.all():
             # 获取使用该版本的服务列表
-            services = db.query(Service.service_name).join(JarFile).filter(
+            services = db.query(Service.id, Service.service_name).join(JarFile).filter(
                 JarFile.jar_name == jar_name,
                 JarFile.version_no == row.version_no,
                 JarFile.is_third_party == False
@@ -702,7 +706,7 @@ async def get_jar_versions(jar_name: str):
                 earliest_time=row.earliest_time.isoformat(),
                 latest_time=row.latest_time.isoformat(),
                 service_count=row.service_count,
-                services=[s.service_name for s in services],
+                services=[ServiceInfo(id=s.id, name=s.service_name) for s in services],
                 file_count=row.file_count,
                 source_hash=row.source_hash  # 添加source_hash
             ))
@@ -736,7 +740,7 @@ async def get_class_versions(class_name: str):
         versions = []
         for row in versions_query.all():
             # 获取使用该版本的服务列表
-            services = db.query(Service.service_name).join(ClassFile).filter(
+            services = db.query(Service.id, Service.service_name).join(ClassFile).filter(
                 ClassFile.class_full_name == class_name,
                 ClassFile.version_no == row.version_no
             ).distinct().all()
@@ -747,7 +751,7 @@ async def get_class_versions(class_name: str):
                 earliest_time=row.earliest_time.isoformat(),
                 latest_time=row.latest_time.isoformat(),
                 service_count=row.service_count,
-                services=[s.service_name for s in services],
+                services=[ServiceInfo(id=s.id, name=s.service_name) for s in services],
                 file_count=row.file_count
             ))
         

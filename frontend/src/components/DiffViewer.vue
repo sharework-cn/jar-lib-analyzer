@@ -12,16 +12,38 @@
     <div class="diff-container">
       <div class="diff-panel">
         <div class="panel-header">
-          <span class="version-label">版本 {{ fromVersion }}</span>
-          <span class="file-size">{{ formatFileSize(sizeBefore) }}</span>
+          <div class="version-info">
+            <span class="version-label">版本 {{ fromVersion }}</span>
+            <span class="file-size">{{ formatFileSize(sizeBefore) }}</span>
+          </div>
+          <el-button 
+            v-if="itemType === 'jar'"
+            type="primary" 
+            link 
+            size="small"
+            @click="viewSource(fromVersion)"
+          >
+            查看源码
+          </el-button>
         </div>
         <div ref="fromEditor" class="editor-container"></div>
       </div>
       
       <div class="diff-panel">
         <div class="panel-header">
-          <span class="version-label">版本 {{ toVersion }}</span>
-          <span class="file-size">{{ formatFileSize(sizeAfter) }}</span>
+          <div class="version-info">
+            <span class="version-label">版本 {{ toVersion }}</span>
+            <span class="file-size">{{ formatFileSize(sizeAfter) }}</span>
+          </div>
+          <el-button 
+            v-if="itemType === 'jar'"
+            type="primary" 
+            link 
+            size="small"
+            @click="viewSource(toVersion)"
+          >
+            查看源码
+          </el-button>
         </div>
         <div ref="toEditor" class="editor-container"></div>
       </div>
@@ -47,7 +69,9 @@ const props = defineProps({
   deletions: Number,
   changePercentage: Number,
   sizeBefore: Number,
-  sizeAfter: Number
+  sizeAfter: Number,
+  itemType: String,
+  itemName: String
 })
 
 const fromEditor = ref(null)
@@ -62,6 +86,13 @@ const formatFileSize = (bytes) => {
   const sizes = ['B', 'KB', 'MB', 'GB']
   const i = Math.floor(Math.log(bytes) / Math.log(k))
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
+}
+
+const viewSource = (version) => {
+  if (props.itemType === 'jar' && props.itemName) {
+    const jarName = encodeURIComponent(props.itemName)
+    window.open(`/jar-sources/${jarName}/${version}`, '_blank')
+  }
 }
 
 const createEditor = (container, content, isReadOnly = true) => {
@@ -277,6 +308,12 @@ watch(() => [props.fromContent, props.toContent], () => {
   background: #f1f3f4;
   border-bottom: 1px solid #d0d7de;
   font-size: 0.875rem;
+}
+
+.version-info {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .version-label {

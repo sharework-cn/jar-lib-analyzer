@@ -10,6 +10,24 @@
           <span class="stat-item changes">{{ changePercentage }}%</span>
         </div>
       </div>
+      <div class="header-actions" v-if="itemType === 'jar'">
+        <el-button 
+          type="primary" 
+          link 
+          size="small"
+          @click="viewSource(fromVersion)"
+        >
+          查看旧版本源码
+        </el-button>
+        <el-button 
+          type="primary" 
+          link 
+          size="small"
+          @click="viewSource(toVersion)"
+        >
+          查看新版本源码
+        </el-button>
+      </div>
     </div>
 
     <!-- 差异内容 -->
@@ -93,8 +111,31 @@ const props = defineProps({
   changePercentage: {
     type: Number,
     default: 0
+  },
+  fromVersion: {
+    type: Number,
+    required: true
+  },
+  toVersion: {
+    type: Number,
+    required: true
+  },
+  itemType: {
+    type: String,
+    default: ''
+  },
+  itemName: {
+    type: String,
+    default: ''
   }
 })
+
+const viewSource = (version) => {
+  if (props.itemType === 'jar' && props.itemName) {
+    const jarName = encodeURIComponent(props.itemName)
+    window.open(`/jar-sources/${jarName}/${version}`, '_blank')
+  }
+}
 
 // 计算总变更行数
 const totalChanges = computed(() => {
@@ -117,12 +158,23 @@ const totalChanges = computed(() => {
   background: #f6f8fa;
   border-bottom: 1px solid #d0d7de;
   padding: 8px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 
 .file-info {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex: 1;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: 1rem;
 }
 
 .file-path {

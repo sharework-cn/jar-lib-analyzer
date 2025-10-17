@@ -22,9 +22,15 @@
               <div class="version-meta">
                 <el-tag size="small" type="info">{{ formatFileSize(version.file_size) }}</el-tag>
                 <span class="version-count">{{ version.file_count }} files</span>
-                <el-tag v-if="version.source_hash" size="small" type="success" class="source-hash-tag">
+                <el-tag 
+                  v-if="version.source_hash" 
+                  size="small" 
+                  type="success" 
+                  class="source-hash-tag"
+                  :title="version.source_hash"
+                >
                   <el-icon><Key /></el-icon>
-                  {{ version.source_hash.substring(0, 8) }}...
+                  {{ version.source_hash.substring(0, 12) }}...
                 </el-tag>
               </div>
             </div>
@@ -67,11 +73,12 @@
               <div class="services-list">
                 <el-tag 
                   v-for="service in version.services" 
-                  :key="service"
+                  :key="service.id"
                   size="small"
-                  class="service-tag"
+                  class="service-tag clickable-service-tag"
+                  @click="goToServiceDetail(service.id)"
                 >
-                  {{ service }}
+                  {{ service.name }}
                 </el-tag>
               </div>
             </div>
@@ -157,6 +164,10 @@ const viewSources = (versionNo) => {
   } else {
     ElMessage.info(`View source for version ${versionNo}`)
   }
+}
+
+const goToServiceDetail = (serviceId) => {
+  router.push(`/services/${serviceId}`)
 }
 
 // 生命周期
@@ -310,6 +321,16 @@ onMounted(() => {
 
 .service-tag {
   margin: 0;
+}
+
+.clickable-service-tag {
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.clickable-service-tag:hover {
+  transform: scale(1.05);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 }
 
 .loading-container {

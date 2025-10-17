@@ -2,12 +2,32 @@
   <div class="diff-view">
     <div class="diff-header">
       <h2>{{ diffTitle }}</h2>
-      <div class="diff-summary" v-if="diffSummary">
-        <el-tag type="success">+{{ diffSummary.insertions }}</el-tag>
-        <el-tag type="danger">-{{ diffSummary.deletions }}</el-tag>
-        <span class="summary-text">
-          {{ diffSummary.files_changed }}个文件变更
-        </span>
+      <div class="header-controls">
+        <div class="diff-summary" v-if="diffSummary">
+          <el-tag type="success">+{{ diffSummary.insertions }}</el-tag>
+          <el-tag type="danger">-{{ diffSummary.deletions }}</el-tag>
+          <span class="summary-text">
+            {{ diffSummary.files_changed }}个文件变更
+          </span>
+        </div>
+        <div class="view-toggle">
+          <el-button-group>
+            <el-button 
+              :type="viewMode === 'dual' ? 'primary' : ''"
+              @click="setViewMode('dual')"
+              size="small"
+            >
+              双窗格
+            </el-button>
+            <el-button 
+              :type="viewMode === 'unified' ? 'primary' : ''"
+              @click="setViewMode('unified')"
+              size="small"
+            >
+              单窗格
+            </el-button>
+          </el-button-group>
+        </div>
       </div>
     </div>
 
@@ -44,7 +64,9 @@
 
       <!-- 差异内容 -->
       <div class="diff-content" v-if="selectedFile && currentFileData && itemType !== 'jar'">
+        <!-- 双窗格视图 -->
         <DiffViewer
+          v-if="viewMode === 'dual'"
           :file-path="selectedFile"
           :from-version="fromVersion"
           :to-version="toVersion"
@@ -55,6 +77,24 @@
           :change-percentage="currentFileStats.change_percentage"
           :size-before="currentFileStats.size_before"
           :size-after="currentFileStats.size_after"
+          :item-type="itemType"
+          :item-name="itemName"
+        />
+        <!-- 单窗格视图 -->
+        <GitHubDiffViewer
+          v-else-if="viewMode === 'unified'"
+          :file-path="selectedFile"
+          :from-version="fromVersion"
+          :to-version="toVersion"
+          :from-content="currentFileData.fromContent"
+          :to-content="currentFileData.toContent"
+          :additions="currentFileStats.additions"
+          :deletions="currentFileStats.deletions"
+          :change-percentage="currentFileStats.change_percentage"
+          :size-before="currentFileStats.size_before"
+          :size-after="currentFileStats.size_after"
+          :item-type="itemType"
+          :item-name="itemName"
         />
       </div>
       
@@ -91,6 +131,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { Document } from '@element-plus/icons-vue'
 import { getVersionDiff } from '@/api/diff'
 import DiffViewer from '@/components/DiffViewer.vue'
+import GitHubDiffViewer from '@/components/GitHubDiffViewer.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -102,6 +143,7 @@ const fileDiffs = ref({})
 const fileContents = ref({})
 const selectedFile = ref('')
 const diffSummary = ref(null)
+const viewMode = ref('dual') // 'dual' 或 'unified'
 
 // 计算属性
 const itemType = computed(() => route.params.type)
@@ -184,6 +226,10 @@ const selectFile = async (filePath) => {
   await loadFileDiff(filePath)
 }
 
+const setViewMode = (mode) => {
+  viewMode.value = mode
+}
+
 const getLineClass = (type) => {
   return {
     'line-added': type === 'added',
@@ -236,10 +282,21 @@ watch(() => route.params, () => {
   color: #212529;
 }
 
+.header-controls {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
 .diff-summary {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+}
+
+.view-toggle {
+  display: flex;
+  align-items: center;
 }
 
 .summary-text {
