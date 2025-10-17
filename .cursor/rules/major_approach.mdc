@@ -1,0 +1,8 @@
+---
+alwaysApply: true
+---
+1. run python scripts in the project root folder.
+2. check and kill the exist process before run backend, check the status after start it
+3. make sure the directory what you are when run the command
+4. update documents first before coding
+5. make sure the os to adapt the command against it

@@ -204,6 +204,7 @@ class ServiceResponse(BaseModel):
 class JarFileInfo(BaseModel):
     jar_name: str
     version_no: int
+    last_version_no: Optional[int]
     file_size: Optional[int]
     last_modified: Optional[datetime]
     
@@ -213,6 +214,7 @@ class JarFileInfo(BaseModel):
 class ClassFileInfo(BaseModel):
     class_full_name: str
     version_no: int
+    last_version_no: Optional[int]
     file_size: Optional[int]
     last_modified: Optional[datetime]
     
@@ -363,6 +365,7 @@ async def get_service(service_id: int, db: Session = Depends(get_db)):
         jar_file_infos.append(JarFileInfo(
             jar_name=jar.jar_name,
             version_no=jar.version_no,
+            last_version_no=jar.last_version_no,
             file_size=jar.file_size,
             last_modified=jar.last_modified
         ))
@@ -374,9 +377,14 @@ async def get_service(service_id: int, db: Session = Depends(get_db)):
         if class_file.version_no:
             version_no = class_file.version_no
         
+        last_version_no = 1
+        if class_file.last_version_no:
+            last_version_no = class_file.last_version_no
+        
         class_file_infos.append(ClassFileInfo(
             class_full_name=class_file.class_full_name,
             version_no=version_no,
+            last_version_no=last_version_no,
             file_size=class_file.file_size,
             last_modified=class_file.last_modified
         ))
