@@ -224,6 +224,7 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import { Search, Box, Document, Collection, OfficeBuilding, Files } from '@element-plus/icons-vue'
 import { searchItems } from '@/api/search'
 
@@ -237,12 +238,14 @@ const searchResults = ref({ jars: [], classes: [], jar_sources: [] })
 
 // Computed properties
 const showResults = computed(() => {
-  return searchResults.value.jars.length > 0 || searchResults.value.classes.length > 0 || searchResults.value.jar_sources.length > 0
+  return (searchResults.value.jars?.length || 0) > 0 || 
+         (searchResults.value.classes?.length || 0) > 0 || 
+         (searchResults.value.jar_sources?.length || 0) > 0
 })
 
-const jarResults = computed(() => searchResults.value.jars)
-const classResults = computed(() => searchResults.value.classes)
-const jarSourceResults = computed(() => searchResults.value.jar_sources)
+const jarResults = computed(() => searchResults.value.jars || [])
+const classResults = computed(() => searchResults.value.classes || [])
+const jarSourceResults = computed(() => searchResults.value.jar_sources || [])
 
 const totalResults = computed(() => {
   return jarResults.value.length + classResults.value.length + jarSourceResults.value.length
@@ -257,10 +260,17 @@ const handleSearch = async () => {
   loading.value = true
   try {
     const results = await searchItems(searchQuery.value, searchType.value)
-    searchResults.value = results
+    // Ensure all required properties exist
+    searchResults.value = {
+      jars: results.jars || [],
+      classes: results.classes || [],
+      jar_sources: results.jar_sources || []
+    }
   } catch (error) {
     console.error('Search failed:', error)
     ElMessage.error('Search failed, please try again')
+    // Reset results on error
+    searchResults.value = { jars: [], classes: [], jar_sources: [] }
   } finally {
     loading.value = false
   }

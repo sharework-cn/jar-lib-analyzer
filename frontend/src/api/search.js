@@ -1,11 +1,11 @@
 import axios from 'axios'
 
-const API_BASE_URL = '/api'
+const API_BASE_URL = ''
 
 // 搜索JAR和Class文件
 export async function searchItems(query, type = 'all') {
   try {
-    const response = await axios.get(`${API_BASE_URL}/search`, {
+    const response = await axios.get(`${API_BASE_URL}/api/search`, {
       params: {
         q: query,
         type: type
