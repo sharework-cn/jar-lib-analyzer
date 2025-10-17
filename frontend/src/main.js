@@ -8,11 +8,13 @@ import SearchPage from './views/SearchPage.vue'
 import VersionHistory from './views/VersionHistory.vue'
 import DiffView from './views/DiffView.vue'
 import JarUnifiedDiff from './views/JarUnifiedDiff.vue'
+import JarFileDiff from './views/JarFileDiff.vue'
 
 const routes = [
   { path: '/', component: SearchPage },
   { path: '/history/:type/:name', component: VersionHistory },
   { path: '/diff/:type/:name/:fromVersion/:toVersion', component: DiffView },
+  { path: '/diff/jar-file/:jarName/:fromVersion/:toVersion/:filePath', component: JarFileDiff },
   { path: '/diff-unified/:type/:name/:fromVersion/:toVersion', component: JarUnifiedDiff }
 ]
 

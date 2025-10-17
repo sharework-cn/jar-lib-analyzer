@@ -11,49 +11,66 @@
       </div>
     </div>
 
-    <!-- 文件列表 -->
-    <div class="file-list" v-if="fileChanges.length > 0">
-      <h3>文件变更</h3>
-      <div class="file-tree">
-        <div 
-          v-for="file in fileChanges" 
-          :key="file.file_path"
-          class="file-item"
-          :class="{ active: selectedFile === file.file_path }"
-          @click="selectFile(file.file_path)"
-        >
-          <div class="file-info">
-            <el-icon class="file-icon"><Document /></el-icon>
-            <span class="file-name">{{ file.file_path }}</span>
-          </div>
-          <div class="file-stats">
-            <el-tag size="small" type="success">+{{ file.additions }}</el-tag>
-            <el-tag size="small" type="danger">-{{ file.deletions }}</el-tag>
-            <div class="change-bar">
-              <div 
-                class="change-indicator"
-                :style="{ width: `${file.change_percentage}%` }"
-              ></div>
+    <!-- 主要内容区域 -->
+    <div class="main-content" v-if="fileChanges.length > 0">
+      <!-- 文件列表 -->
+      <div class="file-list">
+        <h3>文件变更</h3>
+        <div class="file-tree">
+          <div 
+            v-for="file in fileChanges" 
+            :key="file.file_path"
+            class="file-item"
+            :class="{ active: selectedFile === file.file_path }"
+            @click="selectFile(file.file_path)"
+          >
+            <div class="file-info">
+              <el-icon class="file-icon"><Document /></el-icon>
+              <span class="file-name">{{ file.file_path }}</span>
+            </div>
+            <div class="file-stats">
+              <el-tag size="small" type="success">+{{ file.additions }}</el-tag>
+              <el-tag size="small" type="danger">-{{ file.deletions }}</el-tag>
+              <div class="change-bar">
+                <div 
+                  class="change-indicator"
+                  :style="{ width: `${file.change_percentage}%` }"
+                ></div>
+              </div>
             </div>
           </div>
         </div>
       </div>
-    </div>
 
-    <!-- 差异内容 -->
-    <div class="diff-content" v-if="selectedFile && currentFileData">
-      <DiffViewer
-        :file-path="selectedFile"
-        :from-version="fromVersion"
-        :to-version="toVersion"
-        :from-content="currentFileData.fromContent"
-        :to-content="currentFileData.toContent"
-        :additions="currentFileStats.additions"
-        :deletions="currentFileStats.deletions"
-        :change-percentage="currentFileStats.change_percentage"
-        :size-before="currentFileStats.size_before"
-        :size-after="currentFileStats.size_after"
-      />
+      <!-- 差异内容 -->
+      <div class="diff-content" v-if="selectedFile && currentFileData && itemType !== 'jar'">
+        <DiffViewer
+          :file-path="selectedFile"
+          :from-version="fromVersion"
+          :to-version="toVersion"
+          :from-content="currentFileData.fromContent"
+          :to-content="currentFileData.toContent"
+          :additions="currentFileStats.additions"
+          :deletions="currentFileStats.deletions"
+          :change-percentage="currentFileStats.change_percentage"
+          :size-before="currentFileStats.size_before"
+          :size-after="currentFileStats.size_after"
+        />
+      </div>
+      
+      <!-- JAR文件提示 -->
+      <div class="jar-hint" v-if="itemType === 'jar' && fileChanges.length > 0">
+        <el-alert
+          title="点击上方文件查看具体差异"
+          type="info"
+          :closable="false"
+          show-icon
+        >
+          <template #default>
+            选择要查看差异的源码文件，系统将跳转到双窗格差异显示页面。
+          </template>
+        </el-alert>
+      </div>
     </div>
 
     <!-- 加载状态 -->
@@ -70,12 +87,13 @@
 
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { Document } from '@element-plus/icons-vue'
 import { getVersionDiff } from '@/api/diff'
 import DiffViewer from '@/components/DiffViewer.vue'
 
 const route = useRoute()
+const router = useRouter()
 
 // 响应式数据
 const loading = ref(true)
@@ -119,8 +137,8 @@ const loadDiff = async () => {
     fileChanges.value = data.file_changes || []
     diffSummary.value = data.summary
     
-    // 默认选择第一个文件
-    if (fileChanges.value.length > 0) {
+    // 默认选择第一个文件（仅对Class文件）
+    if (fileChanges.value.length > 0 && itemType.value !== 'jar') {
       selectedFile.value = fileChanges.value[0].file_path
       await loadFileDiff(selectedFile.value)
     }
@@ -155,6 +173,13 @@ const loadFileDiff = async (filePath) => {
 }
 
 const selectFile = async (filePath) => {
+  // 如果是JAR文件，跳转到新的差异页面
+  if (itemType.value === 'jar') {
+    router.push(`/diff/jar-file/${encodeURIComponent(itemName.value)}/${fromVersion.value}/${toVersion.value}/${encodeURIComponent(filePath)}`)
+    return
+  }
+  
+  // Class文件保持原有逻辑
   selectedFile.value = filePath
   await loadFileDiff(filePath)
 }
@@ -294,6 +319,15 @@ watch(() => route.params, () => {
   flex-shrink: 0; /* 防止统计信息被压缩 */
 }
 
+.diff-content {
+  width: 100%;
+}
+
+.jar-hint {
+  margin-top: 2rem;
+  padding: 1rem;
+}
+
 .change-bar {
   width: 60px;
   height: 4px;
@@ -307,6 +341,7 @@ watch(() => route.params, () => {
   background: linear-gradient(90deg, #cf222e 0%, #2da44e 100%);
   transition: width 0.3s ease;
 }
+
 
 .diff-content {
   background: white;
