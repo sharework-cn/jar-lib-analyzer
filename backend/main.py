@@ -201,6 +201,52 @@ class ServiceResponse(BaseModel):
     class Config:
         from_attributes = True
 
+class JarFileInfo(BaseModel):
+    jar_name: str
+    version_no: int
+    file_size: Optional[int]
+    last_modified: Optional[datetime]
+    
+    class Config:
+        from_attributes = True
+
+class ClassFileInfo(BaseModel):
+    class_full_name: str
+    version_no: int
+    file_size: Optional[int]
+    last_modified: Optional[datetime]
+    
+    class Config:
+        from_attributes = True
+
+class ServiceDetailResponse(BaseModel):
+    id: int
+    service_name: str
+    ip_address: Optional[str]
+    port: Optional[int]
+    description: Optional[str]
+    created_at: datetime
+    last_updated: Optional[datetime]
+    jar_files: List[JarFileInfo] = []
+    class_files: List[ClassFileInfo] = []
+    
+    class Config:
+        from_attributes = True
+
+class ServiceListResponse(BaseModel):
+    id: int
+    service_name: str
+    ip_address: Optional[str]
+    port: Optional[int]
+    description: Optional[str]
+    created_at: datetime
+    last_updated: Optional[datetime]
+    jar_count: int = 0
+    class_count: int = 0
+    
+    class Config:
+        from_attributes = True
+
 class JavaSourceFileResponse(BaseModel):
     id: int
     class_full_name: str
@@ -239,23 +285,117 @@ def get_db():
 async def root():
     return {"message": "Source Code Difference Analysis API", "version": "1.0.0"}
 
-@app.get("/api/services", response_model=List[ServiceResponse])
+@app.get("/api/services", response_model=List[ServiceListResponse])
 async def get_services(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     db: Session = Depends(get_db)
 ):
-    """Get list of services with pagination"""
+    """Get list of services with pagination and statistics"""
     services = db.query(Service).offset(skip).limit(limit).all()
-    return services
+    
+    service_responses = []
+    for service in services:
+        # Count JAR files
+        jar_count = db.query(JarFile).filter(
+            JarFile.service_id == service.id,
+            JarFile.is_third_party == False
+        ).distinct().count()
+        
+        # Count Class files (direct ClassFile records for this service)
+        class_count = db.query(ClassFile).filter(
+            ClassFile.service_id == service.id
+        ).distinct().count()
+        
+        # Get last updated time
+        jar_last_updated = db.query(JarFile.last_modified).filter(
+            JarFile.service_id == service.id,
+            JarFile.is_third_party == False
+        ).order_by(JarFile.last_modified.desc()).first()
+        
+        class_last_updated = db.query(ClassFile.last_modified).filter(
+            ClassFile.service_id == service.id
+        ).order_by(ClassFile.last_modified.desc()).first()
+        
+        last_updated = None
+        if jar_last_updated and class_last_updated:
+            last_updated = max(jar_last_updated[0], class_last_updated[0])
+        elif jar_last_updated:
+            last_updated = jar_last_updated[0]
+        elif class_last_updated:
+            last_updated = class_last_updated[0]
+        
+        service_responses.append(ServiceListResponse(
+            id=service.id,
+            service_name=service.service_name,
+            ip_address=service.ip_address,
+            port=service.port,
+            description=service.description,
+            created_at=service.created_at,
+            last_updated=last_updated,
+            jar_count=jar_count,
+            class_count=class_count
+        ))
+    
+    return service_responses
 
-@app.get("/api/services/{service_id}", response_model=ServiceResponse)
+@app.get("/api/services/{service_id}", response_model=ServiceDetailResponse)
 async def get_service(service_id: int, db: Session = Depends(get_db)):
-    """Get service details by ID"""
+    """Get service details by ID with JAR and Class files"""
     service = db.query(Service).filter(Service.id == service_id).first()
     if not service:
         raise HTTPException(status_code=404, detail="Service not found")
-    return service
+    
+    # Get JAR files for this service
+    jar_files = db.query(JarFile).filter(
+        JarFile.service_id == service_id,
+        JarFile.is_third_party == False
+    ).distinct().all()
+    
+    # Get Class files for this service (direct ClassFile records)
+    class_files = db.query(ClassFile).filter(
+        ClassFile.service_id == service_id
+    ).distinct().all()
+    
+    # Convert to response format
+    jar_file_infos = []
+    for jar in jar_files:
+        jar_file_infos.append(JarFileInfo(
+            jar_name=jar.jar_name,
+            version_no=jar.version_no,
+            file_size=jar.file_size,
+            last_modified=jar.last_modified
+        ))
+    
+    class_file_infos = []
+    for class_file in class_files:
+        # Handle None version
+        version_no = 1
+        if class_file.version_no:
+            version_no = class_file.version_no
+        
+        class_file_infos.append(ClassFileInfo(
+            class_full_name=class_file.class_full_name,
+            version_no=version_no,
+            file_size=class_file.file_size,
+            last_modified=class_file.last_modified
+        ))
+    
+    # Sort by name
+    jar_file_infos.sort(key=lambda x: x.jar_name)
+    class_file_infos.sort(key=lambda x: x.class_full_name)
+    
+    return ServiceDetailResponse(
+        id=service.id,
+        service_name=service.service_name,
+        ip_address=service.ip_address,
+        port=service.port,
+        description=service.description,
+        created_at=service.created_at,
+        last_updated=max([jar.last_modified for jar in jar_files] + [cls.last_modified for cls in class_files], default=None),
+        jar_files=jar_file_infos,
+        class_files=class_file_infos
+    )
 
 @app.get("/api/services/{service_id}/java-classes", response_model=List[JavaSourceFileResponse])
 async def get_service_java_classes(
@@ -307,6 +447,7 @@ async def get_latest_java_class(class_full_name: str, db: Session = Depends(get_
 class SearchResult(BaseModel):
     jars: List[Dict[str, Any]]
     classes: List[Dict[str, Any]]
+    jar_sources: List[Dict[str, Any]]
 
 class VersionInfo(BaseModel):
     version_no: int
@@ -363,15 +504,15 @@ class VersionDiff(BaseModel):
 
 # API Routes
 @app.get("/api/search", response_model=SearchResult)
-async def search_items(q: str = Query(..., description="搜索关键词"), 
-                      type: str = Query("all", description="搜索类型: all, jar, class")):
-    """搜索JAR文件和Class文件"""
+async def search_items(q: str = Query(..., description="Search keyword"), 
+                      type: str = Query("all", description="Search type: all, jar, class, jar-source")):
+    """Search JAR files, Class files, and JAR SOURCE files"""
     db = SessionLocal()
     try:
-        results = {"jars": [], "classes": []}
+        results = {"jars": [], "classes": [], "jar_sources": []}
         
         if type in ["all", "jar"]:
-            # 搜索JAR文件
+            # Search JAR files
             jar_query = db.query(JarFile).filter(
                 JarFile.jar_name.like(f"%{q}%"),
                 JarFile.is_third_party == False
@@ -391,7 +532,7 @@ async def search_items(q: str = Query(..., description="搜索关键词"),
                 jar_groups[jar.jar_name]["file_count"] += 1
                 jar_groups[jar.jar_name]["services"].add(jar.service.service_name)
             
-            # 获取版本统计
+            # Get version statistics
             for jar_name, data in jar_groups.items():
                 version_count = db.query(func.count(func.distinct(JarFile.version_no))).filter(
                     JarFile.jar_name == jar_name,
@@ -404,7 +545,7 @@ async def search_items(q: str = Query(..., description="搜索关键词"),
                 results["jars"].append(data)
         
         if type in ["all", "class"]:
-            # 搜索Class文件
+            # Search Class files
             class_query = db.query(ClassFile).filter(
                 ClassFile.class_full_name.like(f"%{q}%")
             )
@@ -423,7 +564,7 @@ async def search_items(q: str = Query(..., description="搜索关键词"),
                 class_groups[cls.class_full_name]["file_count"] += 1
                 class_groups[cls.class_full_name]["services"].add(cls.service.service_name)
             
-            # 获取版本统计
+            # Get version statistics
             for class_name, data in class_groups.items():
                 version_count = db.query(func.count(func.distinct(ClassFile.version_no))).filter(
                     ClassFile.class_full_name == class_name
@@ -434,14 +575,94 @@ async def search_items(q: str = Query(..., description="搜索关键词"),
                 data["services"] = list(data["services"])
                 results["classes"].append(data)
         
+        if type in ["all", "jar-source"]:
+            # Search JAR SOURCE files (Java source files in JAR files)
+            # Join with JavaSourceFile to search by class_full_name
+            jar_source_query = db.query(JavaSourceFileVersion).join(JavaSourceFile).join(JavaSourceInJarFile).join(JarFile).filter(
+                JavaSourceFile.class_full_name.like(f"%{q}%"),
+                JarFile.is_third_party == False
+            )
+            
+            jar_source_groups = {}
+            for source in jar_source_query.all():
+                class_name = source.java_source_file.class_full_name
+                file_path = source.file_path
+                
+                # Get JAR file info through the relationship
+                jar_file = None
+                service_name = None
+                for jar_rel in source.jar_files:
+                    jar_file = jar_rel.jar_file
+                    service_name = jar_file.service.service_name
+                    break  # Take the first one
+                
+                if not jar_file:
+                    continue
+                
+                if class_name not in jar_source_groups:
+                    jar_source_groups[class_name] = {
+                        "name": class_name,
+                        "file_path": file_path,
+                        "jar_name": jar_file.jar_name,
+                        "file_count": 0,
+                        "version_count": 0,
+                        "service_count": 0,
+                        "services": set()
+                    }
+                
+                jar_source_groups[class_name]["file_count"] += 1
+                jar_source_groups[class_name]["services"].add(service_name)
+            
+            # Get version statistics
+            for class_name, data in jar_source_groups.items():
+                version_count = db.query(func.count(func.distinct(JavaSourceFileVersion.version))).join(JavaSourceFile).join(JavaSourceInJarFile).join(JarFile).filter(
+                    JavaSourceFile.class_full_name == class_name,
+                    JarFile.is_third_party == False
+                ).scalar()
+                
+                data["version_count"] = version_count
+                data["service_count"] = len(data["services"])
+                data["services"] = list(data["services"])
+                results["jar_sources"].append(data)
+        
         return results
         
     finally:
         db.close()
 
+@app.get("/api/jars/{jar_name}/sources/{version_no}")
+async def get_jar_source_files(jar_name: str, version_no: int, db: Session = Depends(get_db)):
+    """Get JAR source files for a specific version"""
+    source_files = db.query(JavaSourceFileVersion).join(JavaSourceInJarFile).join(JarFile).filter(
+        JarFile.jar_name == jar_name,
+        JarFile.version_no == version_no,
+        JarFile.is_third_party == False
+    ).all()
+    
+    return source_files
+
+@app.get("/api/jars/{jar_name}/sources/{version_no}/content")
+async def get_jar_source_file_content(
+    jar_name: str, 
+    version_no: int, 
+    file_path: str = Query(..., description="File path"),
+    db: Session = Depends(get_db)
+):
+    """Get specific JAR source file content"""
+    source_file = db.query(JavaSourceFileVersion).join(JavaSourceInJarFile).join(JarFile).filter(
+        JarFile.jar_name == jar_name,
+        JarFile.version_no == version_no,
+        JavaSourceFileVersion.file_path == file_path,
+        JarFile.is_third_party == False
+    ).first()
+    
+    if not source_file:
+        raise HTTPException(status_code=404, detail="Source file not found")
+    
+    return {"content": source_file.file_content or ""}
+
 @app.get("/api/jars/{jar_name}/versions", response_model=VersionHistory)
 async def get_jar_versions(jar_name: str):
-    """获取JAR文件版本历史"""
     db = SessionLocal()
     try:
         # 获取JAR文件版本信息
@@ -527,6 +748,167 @@ async def get_class_versions(class_name: str):
             item_type="class",
             versions=versions
         )
+        
+    finally:
+        db.close()
+
+@app.get("/api/classes/{class_name}/diff")
+async def get_class_diff(
+    class_name: str,
+    from_version: int = Query(..., description="源版本号"),
+    to_version: int = Query(..., description="目标版本号"),
+    file_path: Optional[str] = Query(None, description="特定文件路径"),
+    resp_format: str = Query("structured", alias="format", description="返回格式: structured 或 unified"),
+    include: str = Query("all", description="unified模式返回内容: diff|content|all")
+):
+    """获取Class文件版本差异"""
+    db = SessionLocal()
+    try:
+        # 获取两个版本的Class文件
+        from_class = db.query(ClassFile).filter(
+            ClassFile.class_full_name == class_name,
+            ClassFile.version_no == from_version
+        ).first()
+        
+        to_class = db.query(ClassFile).filter(
+            ClassFile.class_full_name == class_name,
+            ClassFile.version_no == to_version
+        ).first()
+        
+        if not from_class or not to_class:
+            raise HTTPException(status_code=404, detail="Class file version not found")
+        
+        # 获取对应的Java源码文件版本
+        from_source = db.query(JavaSourceFileVersion).filter(
+            JavaSourceFileVersion.id == from_class.java_source_file_version_id
+        ).first()
+        
+        to_source = db.query(JavaSourceFileVersion).filter(
+            JavaSourceFileVersion.id == to_class.java_source_file_version_id
+        ).first()
+        
+        if not from_source or not to_source:
+            raise HTTPException(status_code=404, detail="Source file version not found")
+        
+        # 计算差异
+        from_content = from_source.file_content or ""
+        to_content = to_source.file_content or ""
+        
+        # 计算行数差异
+        from_lines = from_content.split('\n')
+        to_lines = to_content.split('\n')
+        
+        diff = list(difflib.unified_diff(from_lines, to_lines, lineterm=''))
+        additions = len([line for line in diff if line.startswith('+') and not line.startswith('+++')])
+        deletions = len([line for line in diff if line.startswith('-') and not line.startswith('---')])
+        
+        changes = additions + deletions
+        change_percentage = (changes / max(len(from_lines), 1)) * 100
+        
+        # 生成差异内容
+        file_changes = [FileChange(
+            file_path=f"{class_name}.java",
+            change_type="modified" if from_content != to_content else "unchanged",
+            additions=additions,
+            deletions=deletions,
+            changes=changes,
+            change_percentage=round(change_percentage, 1),
+            size_before=from_source.file_size or 0,
+            size_after=to_source.file_size or 0
+        )]
+        
+        summary = DiffSummary(
+            total_files=1,
+            files_changed=1 if from_content != to_content else 0,
+            insertions=additions,
+            deletions=deletions,
+            net_change=additions - deletions
+        )
+        
+        # 如果请求特定文件
+        if file_path:
+            if resp_format == "unified":
+                # 生成unified diff文本
+                unified_list = list(
+                    difflib.unified_diff(
+                        from_lines,
+                        to_lines,
+                        fromfile=f"a/{class_name}.java",
+                        tofile=f"b/{class_name}.java",
+                        lineterm=""
+                    )
+                )
+                
+                unified_text = []
+                unified_text.append(f"diff --git a/{class_name}.java b/{class_name}.java")
+                unified_text.append(f"--- a/{class_name}.java")
+                unified_text.append(f"+++ b/{class_name}.java")
+                # 过滤掉unified_list中重复的---和+++行
+                filtered_unified = [line for line in unified_list if not line.startswith('---') and not line.startswith('+++')]
+                unified_text.extend(filtered_unified)
+                unified_str = "\n".join(unified_text)
+                
+                return {
+                    "file_path": f"{class_name}.java",
+                    "unified_diff": unified_str
+                }
+            else:
+                return {
+                    "from_content": from_content,
+                    "to_content": to_content
+                }
+        
+        if resp_format == "unified":
+            # 生成unified diff文本
+            unified_list = list(
+                difflib.unified_diff(
+                    from_lines,
+                    to_lines,
+                    fromfile=f"a/{class_name}.java",
+                    tofile=f"b/{class_name}.java",
+                    lineterm=""
+                )
+            )
+            
+            unified_text = []
+            unified_text.append(f"diff --git a/{class_name}.java b/{class_name}.java")
+            unified_text.append(f"--- a/{class_name}.java")
+            unified_text.append(f"+++ b/{class_name}.java")
+            # 过滤掉unified_list中重复的---和+++行
+            filtered_unified = [line for line in unified_list if not line.startswith('---') and not line.startswith('+++')]
+            unified_text.extend(filtered_unified)
+            unified_str = "\n".join(unified_text)
+            
+            return {
+                "from_version": from_version,
+                "to_version": to_version,
+                "summary": summary.model_dump() if hasattr(summary, "model_dump") else summary.__dict__,
+                "files": [{
+                    "file_path": f"{class_name}.java",
+                    "change_type": "modified" if from_content != to_content else "unchanged",
+                    "additions": additions,
+                    "deletions": deletions,
+                    "unified_diff": unified_str,
+                    "language": "java"
+                }]
+            }
+        else:
+            # 生成结构化差异
+            file_diffs = []
+            if from_content != to_content:
+                hunks = generate_diff_hunks(from_content, to_content)
+                file_diffs.append(FileDiff(
+                    file_path=f"{class_name}.java",
+                    hunks=hunks
+                ))
+            
+            return VersionDiff(
+                from_version=from_version,
+                to_version=to_version,
+                file_changes=file_changes,
+                summary=summary,
+                file_diffs=file_diffs
+            )
         
     finally:
         db.close()
