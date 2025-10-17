@@ -11,7 +11,7 @@
 
     <div class="toolbar">
       <el-input v-model="keyword" placeholder="过滤文件路径" size="small" clearable style="max-width: 320px" />
-      <el-checkbox v-model="onlyChanged" label="仅显示修改文件" size="small" />
+      <el-checkbox v-model="showAllFiles" label="显示所有文件" size="small" />
     </div>
 
     <div v-if="loading" class="loading">
@@ -47,7 +47,7 @@ const loading = ref(true)
 const files = ref([])
 const summary = ref(null)
 const keyword = ref('')
-const onlyChanged = ref(false)
+const showAllFiles = ref(false)
 
 const itemType = computed(() => route.params.type)
 const itemName = computed(() => decodeURIComponent(route.params.name))
@@ -59,7 +59,8 @@ const title = computed(() => `${itemName.value} 版本 ${fromVersion.value} → 
 const filteredFiles = computed(() => {
   return files.value.filter(f => {
     const matchKeyword = !keyword.value || f.file_path.toLowerCase().includes(keyword.value.toLowerCase())
-    const matchChanged = !onlyChanged.value || f.additions + f.deletions > 0
+    // 默认只显示修改的文件，勾选"显示所有文件"后才显示所有文件
+    const matchChanged = showAllFiles.value || f.additions + f.deletions > 0
     return matchKeyword && matchChanged
   })
 })
