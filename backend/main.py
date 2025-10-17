@@ -685,7 +685,6 @@ async def get_jar_versions(jar_name: str):
             func.min(JarFile.file_size).label('file_size'),
             func.min(JarFile.last_modified).label('earliest_time'),
             func.max(JarFile.last_modified).label('latest_time'),
-            func.count(JarFile.id).label('file_count'),
             func.count(func.distinct(JarFile.service_id)).label('service_count'),
             func.min(JarFile.source_hash).label('source_hash')  # 添加source_hash
         ).filter(
@@ -702,6 +701,15 @@ async def get_jar_versions(jar_name: str):
                 JarFile.is_third_party == False
             ).distinct().all()
             
+            # 计算该JAR版本包含的源码文件数量
+            source_file_count = db.query(func.count(func.distinct(JavaSourceInJarFile.java_source_file_version_id))).join(
+                JarFile, JavaSourceInJarFile.jar_file_id == JarFile.id
+            ).filter(
+                JarFile.jar_name == jar_name,
+                JarFile.version_no == row.version_no,
+                JarFile.is_third_party == False
+            ).scalar() or 0
+            
             versions.append(VersionInfo(
                 version_no=row.version_no,
                 file_size=row.file_size,
@@ -709,7 +717,7 @@ async def get_jar_versions(jar_name: str):
                 latest_time=row.latest_time.isoformat(),
                 service_count=row.service_count,
                 services=[ServiceInfo(id=s.id, name=s.service_name) for s in services],
-                file_count=row.file_count,
+                file_count=source_file_count,
                 source_hash=row.source_hash  # 添加source_hash
             ))
         
