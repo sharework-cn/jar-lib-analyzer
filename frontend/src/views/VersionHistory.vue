@@ -143,11 +143,7 @@ const formatTimeRange = (earliest, latest) => {
 }
 
 const goToDiff = (fromVersion, toVersion) => {
-  if (itemType.value === 'jar') {
-    router.push(`/diff-unified/jar/${encodeURIComponent(itemName.value)}/${fromVersion}/${toVersion}`)
-  } else {
-    router.push(`/diff/${itemType.value}/${encodeURIComponent(itemName.value)}/${fromVersion}/${toVersion}`)
-  }
+  router.push(`/diff/${itemType.value}/${encodeURIComponent(itemName.value)}/${fromVersion}/${toVersion}`)
 }
 
 const goToUnifiedDiff = (fromVersion, toVersion) => {
