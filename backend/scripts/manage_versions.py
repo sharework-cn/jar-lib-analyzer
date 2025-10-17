@@ -179,24 +179,28 @@ class VersionManager:
             """), {"jar_id": jar_file.id}).fetchall()
             
             if not source_mappings:
-                logger.warning(f"No source files found for JAR {jar_file.jar_name} (ID: {jar_file.id})")
-                continue
-            
-            # Build hash input string
-            hash_input_parts = []
-            for mapping in source_mappings:
-                class_name = mapping.class_full_name or ""
-                file_hash = mapping.file_hash or ""
-                hash_input_parts.append(f"{class_name}:{file_hash}")
-            
-            # Calculate source hash
-            hash_input = "\n".join(hash_input_parts)
-            source_hash = hashlib.sha256(hash_input.encode('utf-8')).hexdigest()
-            
-            # Update JAR file with source hash
-            jar_file.source_hash = source_hash
-            
-            logger.debug(f"JAR {jar_file.jar_name}: {len(source_mappings)} source files, hash: {source_hash[:8]}...")
+                # No source files found, use file_size as fallback for hash calculation
+                logger.warning(f"No source files found for JAR {jar_file.jar_name} (ID: {jar_file.id}), using file_size as fallback")
+                file_size = jar_file.file_size or 0
+                source_hash = hashlib.sha256(f"file_size:{file_size}".encode('utf-8')).hexdigest()
+                jar_file.source_hash = source_hash
+                logger.debug(f"JAR {jar_file.jar_name}: no source files, using file_size {file_size}, hash: {source_hash[:8]}...")
+            else:
+                # Build hash input string from source files
+                hash_input_parts = []
+                for mapping in source_mappings:
+                    class_name = mapping.class_full_name or ""
+                    file_hash = mapping.file_hash or ""
+                    hash_input_parts.append(f"{class_name}:{file_hash}")
+                
+                # Calculate source hash
+                hash_input = "\n".join(hash_input_parts)
+                source_hash = hashlib.sha256(hash_input.encode('utf-8')).hexdigest()
+                
+                # Update JAR file with source hash
+                jar_file.source_hash = source_hash
+                
+                logger.debug(f"JAR {jar_file.jar_name}: {len(source_mappings)} source files, hash: {source_hash[:8]}...")
     
     def _generate_versions_by_size(self, files):
         """Generate version numbers based on file size - same size = same version"""
