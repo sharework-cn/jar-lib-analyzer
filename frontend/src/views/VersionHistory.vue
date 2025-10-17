@@ -2,7 +2,7 @@
   <div class="version-history">
     <div class="history-header">
       <h2>{{ itemTitle }}</h2>
-      <p class="item-subtitle">{{ itemType === 'jar' ? 'JAR文件' : 'Class文件' }}版本历史</p>
+      <p class="item-subtitle">{{ itemType === 'jar' ? 'JAR File' : 'Class File' }} Version History</p>
     </div>
 
     <div class="version-timeline" v-if="versions.length > 0">
@@ -18,10 +18,10 @@
         <div class="version-content">
           <div class="version-header">
             <div class="version-info">
-              <h3 class="version-title">版本 {{ version.version_no }}</h3>
+              <h3 class="version-title">Version {{ version.version_no }}</h3>
               <div class="version-meta">
                 <el-tag size="small" type="info">{{ formatFileSize(version.file_size) }}</el-tag>
-                <span class="version-count">{{ version.file_count }}个文件</span>
+                <span class="version-count">{{ version.file_count }} files</span>
                 <el-tag v-if="version.source_hash" size="small" type="success" class="source-hash-tag">
                   <el-icon><Key /></el-icon>
                   {{ version.source_hash.substring(0, 8) }}...
@@ -36,7 +36,7 @@
                 @click="goToDiff(version.version_no, versions[index-1].version_no)"
               >
                 <el-icon><Switch /></el-icon>
-                查看差异
+                View Differences
               </el-button>
               <el-button 
                 v-if="index > 0" 
@@ -44,11 +44,11 @@
                 @click="goToUnifiedDiff(version.version_no, versions[index-1].version_no)"
               >
                 <el-icon><Switch /></el-icon>
-                GitHub风格（单窗格）
+                GitHub Style (Single Pane)
               </el-button>
               <el-button size="small" @click="viewSources(version.version_no)">
                 <el-icon><View /></el-icon>
-                查看源码
+                View Sources
               </el-button>
             </div>
           </div>
@@ -85,7 +85,7 @@
     </div>
 
     <div class="no-versions" v-if="!loading && versions.length === 0">
-      <el-empty description="暂无版本数据" />
+      <el-empty description="No version data available" />
     </div>
   </div>
 </template>
@@ -115,8 +115,8 @@ const loadVersionHistory = async () => {
     const data = await getVersionHistory(itemType.value, itemName.value)
     versions.value = data.versions
   } catch (error) {
-    console.error('加载版本历史失败:', error)
-    ElMessage.error('加载版本历史失败')
+    console.error('Failed to load version history:', error)
+    ElMessage.error('Failed to load version history')
   } finally {
     loading.value = false
   }
@@ -151,8 +151,12 @@ const goToUnifiedDiff = (fromVersion, toVersion) => {
 }
 
 const viewSources = (versionNo) => {
-  // 查看源码功能
-  ElMessage.info(`查看版本 ${versionNo} 的源码`)
+  // Navigate to JAR source files page
+  if (itemType.value === 'jar') {
+    router.push(`/jar-sources/${encodeURIComponent(itemName.value)}/${versionNo}`)
+  } else {
+    ElMessage.info(`View source for version ${versionNo}`)
+  }
 }
 
 // 生命周期

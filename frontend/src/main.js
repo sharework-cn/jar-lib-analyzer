@@ -9,10 +9,16 @@ import VersionHistory from './views/VersionHistory.vue'
 import DiffView from './views/DiffView.vue'
 import JarUnifiedDiff from './views/JarUnifiedDiff.vue'
 import JarFileDiff from './views/JarFileDiff.vue'
+import ServicesPage from './views/ServicesPage.vue'
+import ServiceDetailPage from './views/ServiceDetailPage.vue'
+import JarSourcesPage from './views/JarSourcesPage.vue'
 
 const routes = [
   { path: '/', component: SearchPage },
+  { path: '/services', component: ServicesPage },
+  { path: '/services/:id', component: ServiceDetailPage },
   { path: '/history/:type/:name', component: VersionHistory },
+  { path: '/jar-sources/:jarName/:versionNo', component: JarSourcesPage },
   { path: '/diff/:type/:name/:fromVersion/:toVersion', component: DiffView },
   { path: '/diff/jar-file/:jarName/:fromVersion/:toVersion/:filePath', component: JarFileDiff },
   { path: '/diff-unified/:type/:name/:fromVersion/:toVersion', component: JarUnifiedDiff }

@@ -1,15 +1,15 @@
 <template>
   <div class="search-page">
-    <!-- 搜索区域 -->
+    <!-- Search Area -->
     <div class="search-container">
       <div class="search-content">
-        <h2 class="search-title">搜索JAR文件或Class文件</h2>
-        <p class="search-subtitle">输入JAR名称或类名进行模糊搜索</p>
+        <h2 class="search-title">Search JAR Files or Class Files</h2>
+        <p class="search-subtitle">Enter JAR name or class name for fuzzy search</p>
         
         <div class="search-input-group">
           <el-input
             v-model="searchQuery"
-            placeholder="输入JAR名称或类名进行搜索..."
+            placeholder="Enter JAR name or class name to search..."
             size="large"
             clearable
             @keyup.enter="handleSearch"
@@ -26,32 +26,33 @@
             :loading="loading"
           >
             <el-icon><Search /></el-icon>
-            搜索
+            Search
           </el-button>
         </div>
         
         <div class="search-options">
           <el-radio-group v-model="searchType" size="default">
-            <el-radio-button value="all">全部</el-radio-button>
-            <el-radio-button value="jar">JAR文件</el-radio-button>
-            <el-radio-button value="class">Class文件</el-radio-button>
+            <el-radio-button value="all">All</el-radio-button>
+            <el-radio-button value="jar">JAR Files</el-radio-button>
+            <el-radio-button value="class">Class Files</el-radio-button>
+            <el-radio-button value="jar-source">JAR Source</el-radio-button>
           </el-radio-group>
         </div>
       </div>
     </div>
 
-    <!-- 搜索结果 -->
+    <!-- Search Results -->
     <div class="results-container" v-if="showResults">
       <div class="results-header">
-        <h3>搜索结果</h3>
-        <p class="results-count">共找到 {{ totalResults }} 个结果</p>
+        <h3>Search Results</h3>
+        <p class="results-count">Found {{ totalResults }} results</p>
       </div>
       
-      <!-- JAR文件结果 -->
+      <!-- JAR Files Results -->
       <div class="results-section" v-if="jarResults.length > 0">
         <h4 class="section-title">
           <el-icon><Box /></el-icon>
-          JAR文件 ({{ jarResults.length }}个)
+          JAR Files ({{ jarResults.length }})
         </h4>
         <div class="results-grid">
           <el-card 
@@ -69,15 +70,15 @@
               <div class="card-stats">
                 <div class="stat-item">
                   <el-icon><Document /></el-icon>
-                  <span>{{ jar.file_count }}个文件</span>
+                  <span>{{ jar.file_count }} files</span>
                 </div>
                 <div class="stat-item">
                   <el-icon><Collection /></el-icon>
-                  <span>{{ jar.version_count }}个版本</span>
+                  <span>{{ jar.version_count }} versions</span>
                 </div>
                 <div class="stat-item">
                   <el-icon><OfficeBuilding /></el-icon>
-                  <span>{{ jar.service_count }}个服务</span>
+                  <span>{{ jar.service_count }} services</span>
                 </div>
               </div>
               <div class="card-services">
@@ -90,7 +91,7 @@
                   {{ service }}
                 </el-tag>
                 <span v-if="jar.services.length > 3" class="more-services">
-                  +{{ jar.services.length - 3 }}个
+                  +{{ jar.services.length - 3 }} more
                 </span>
               </div>
             </div>
@@ -98,11 +99,11 @@
         </div>
       </div>
       
-      <!-- Class文件结果 -->
+      <!-- Class Files Results -->
       <div class="results-section" v-if="classResults.length > 0">
         <h4 class="section-title">
           <el-icon><Document /></el-icon>
-          Class文件 ({{ classResults.length }}个)
+          Class Files ({{ classResults.length }})
         </h4>
         <div class="results-grid">
           <el-card 
@@ -120,15 +121,15 @@
               <div class="card-stats">
                 <div class="stat-item">
                   <el-icon><Document /></el-icon>
-                  <span>{{ cls.file_count }}个文件</span>
+                  <span>{{ cls.file_count }} files</span>
                 </div>
                 <div class="stat-item">
                   <el-icon><Collection /></el-icon>
-                  <span>{{ cls.version_count }}个版本</span>
+                  <span>{{ cls.version_count }} versions</span>
                 </div>
                 <div class="stat-item">
                   <el-icon><OfficeBuilding /></el-icon>
-                  <span>{{ cls.service_count }}个服务</span>
+                  <span>{{ cls.service_count }} services</span>
                 </div>
               </div>
               <div class="card-services">
@@ -141,7 +142,7 @@
                   {{ service }}
                 </el-tag>
                 <span v-if="cls.services.length > 3" class="more-services">
-                  +{{ cls.services.length - 3 }}个
+                  +{{ cls.services.length - 3 }} more
                 </span>
               </div>
             </div>
@@ -149,10 +150,71 @@
         </div>
       </div>
       
-      <!-- 无结果 -->
+      <!-- JAR Source Results -->
+      <div class="results-section" v-if="jarSourceResults.length > 0">
+        <h4 class="section-title">
+          <el-icon><Files /></el-icon>
+          JAR Source Files ({{ jarSourceResults.length }})
+        </h4>
+        <div class="results-grid">
+          <el-card 
+            v-for="source in jarSourceResults" 
+            :key="source.name"
+            class="result-card"
+            shadow="hover"
+            @click="goToJarSource(source)"
+          >
+            <div class="card-content">
+              <div class="card-header">
+                <h5 class="item-name">{{ source.name }}</h5>
+                <el-tag type="warning" size="small">JAR SOURCE</el-tag>
+              </div>
+              <div class="card-info">
+                <div class="info-item">
+                  <el-icon><Box /></el-icon>
+                  <span>JAR: {{ source.jar_name }}</span>
+                </div>
+                <div class="info-item">
+                  <el-icon><Document /></el-icon>
+                  <span>Path: {{ source.file_path }}</span>
+                </div>
+              </div>
+              <div class="card-stats">
+                <div class="stat-item">
+                  <el-icon><Document /></el-icon>
+                  <span>{{ source.file_count }} files</span>
+                </div>
+                <div class="stat-item">
+                  <el-icon><Collection /></el-icon>
+                  <span>{{ source.version_count }} versions</span>
+                </div>
+                <div class="stat-item">
+                  <el-icon><OfficeBuilding /></el-icon>
+                  <span>{{ source.service_count }} services</span>
+                </div>
+              </div>
+              <div class="card-services">
+                <el-tag 
+                  v-for="service in source.services.slice(0, 3)" 
+                  :key="service"
+                  size="small"
+                  class="service-tag"
+                >
+                  {{ service }}
+                </el-tag>
+                <span v-if="source.services.length > 3" class="more-services">
+                  +{{ source.services.length - 3 }} more
+                </span>
+              </div>
+            </div>
+          </el-card>
+        </div>
+      </div>
+      
+      <!-- No Results -->
       <div class="no-results" v-if="!loading && totalResults === 0">
-        <el-empty description="未找到匹配的结果">
-          <el-button type="primary" @click="clearSearch">重新搜索</el-button>
+        <el-empty description="No matching results found">
+          <el-button type="primary" @click="clearSearch">Search Again</el-button>
         </el-empty>
       </div>
     </div>
@@ -162,25 +224,29 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { Search, Box, Document, Collection, OfficeBuilding } from '@element-plus/icons-vue'
+import { Search, Box, Document, Collection, OfficeBuilding, Files } from '@element-plus/icons-vue'
 import { searchItems } from '@/api/search'
 
 const router = useRouter()
 
-// 响应式数据
+// Reactive data
 const searchQuery = ref('')
 const searchType = ref('all')
 const loading = ref(false)
-const searchResults = ref({ jars: [], classes: [] })
+const searchResults = ref({ jars: [], classes: [], jar_sources: [] })
 
-// 计算属性
+// Computed properties
 const showResults = computed(() => {
-  return searchResults.value.jars.length > 0 || searchResults.value.classes.length > 0
+  return searchResults.value.jars.length > 0 || searchResults.value.classes.length > 0 || searchResults.value.jar_sources.length > 0
 })
 
 const jarResults = computed(() => searchResults.value.jars)
 const classResults = computed(() => searchResults.value.classes)
-const totalResults = computed(() => jarResults.value.length + classResults.value.length)
+const jarSourceResults = computed(() => searchResults.value.jar_sources)
+
+const totalResults = computed(() => {
+  return jarResults.value.length + classResults.value.length + jarSourceResults.value.length
+})
 
 // 方法
 const handleSearch = async () => {
@@ -193,27 +259,32 @@ const handleSearch = async () => {
     const results = await searchItems(searchQuery.value, searchType.value)
     searchResults.value = results
   } catch (error) {
-    console.error('搜索失败:', error)
-    ElMessage.error('搜索失败，请重试')
+    console.error('Search failed:', error)
+    ElMessage.error('Search failed, please try again')
   } finally {
     loading.value = false
   }
 }
 
 const handleInputChange = () => {
-  // 可以添加防抖搜索
+  // Can add debounced search
 }
 
 const goToHistory = (type, name) => {
   router.push(`/history/${type}/${encodeURIComponent(name)}`)
 }
 
-const clearSearch = () => {
-  searchQuery.value = ''
-  searchResults.value = { jars: [], classes: [] }
+const goToJarSource = (source) => {
+  // Navigate to JAR history page
+  router.push(`/history/jar/${encodeURIComponent(source.jar_name)}`)
 }
 
-// 监听搜索类型变化
+const clearSearch = () => {
+  searchQuery.value = ''
+  searchResults.value = { jars: [], classes: [], jar_sources: [] }
+}
+
+// Watch search type changes
 watch(searchType, () => {
   if (searchQuery.value.trim()) {
     handleSearch()
@@ -349,6 +420,31 @@ watch(searchType, () => {
   gap: 0.25rem;
   font-size: 0.875rem;
   color: #6c757d;
+}
+
+.card-info {
+  margin-bottom: 1rem;
+  padding: 0.75rem;
+  background: #f8f9fa;
+  border-radius: 6px;
+}
+
+.info-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #656d76;
+  font-size: 0.875rem;
+  margin-bottom: 0.25rem;
+}
+
+.info-item:last-child {
+  margin-bottom: 0;
+}
+
+.info-item .el-icon {
+  color: #409eff;
+  flex-shrink: 0;
 }
 
 .card-services {

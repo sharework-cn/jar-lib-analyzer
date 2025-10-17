@@ -5,7 +5,7 @@
         <div class="header-content">
           <h1 class="app-title">
             <el-icon class="title-icon"><Search /></el-icon>
-            Java库分析系统
+            Java Library Analyzer
           </h1>
           <div class="header-actions">
             <el-breadcrumb separator="/" v-if="showBreadcrumb">
@@ -20,6 +20,7 @@
           </div>
         </div>
       </el-header>
+      <Navigation />
       <el-main class="app-main">
         <router-view />
       </el-main>
@@ -31,6 +32,7 @@
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { Search } from '@element-plus/icons-vue'
+import Navigation from '@/components/Navigation.vue'
 
 const route = useRoute()
 
@@ -39,7 +41,7 @@ const showBreadcrumb = computed(() => {
 })
 
 const breadcrumbItems = computed(() => {
-  const items = [{ title: '搜索', path: '/' }]
+  const items = [{ title: 'Search', path: '/' }]
   
   if (route.path.startsWith('/history/')) {
     const [, , type, name] = route.path.split('/')
@@ -48,8 +50,10 @@ const breadcrumbItems = computed(() => {
     const [, , type, name, fromVersion, toVersion] = route.path.split('/')
     items.push(
       { title: `${type === 'jar' ? 'JAR' : 'Class'}: ${name}`, path: `/history/${type}/${name}` },
-      { title: `版本 ${fromVersion} → ${toVersion}`, path: route.path }
+      { title: `Version ${fromVersion} → ${toVersion}`, path: route.path }
     )
+  } else if (route.path.startsWith('/services')) {
+    items.push({ title: 'Services', path: route.path })
   }
   
   return items
