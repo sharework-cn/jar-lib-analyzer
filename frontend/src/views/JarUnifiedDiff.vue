@@ -31,9 +31,6 @@
             </div>
           </div>
           <Diff2HtmlBlock v-if="f.unified_diff" :unified-diff="f.unified_diff" :file-path="f.file_path" />
-          <div v-else class="no-diff-message">
-            <p>文件内容无变化</p>
-          </div>
         </div>
     </div>
   </div>
@@ -101,6 +98,4 @@ onMounted(load)
 .file-header { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: #f6f8fa; border-bottom: 1px solid #d0d7de; }
 .file-header h4 { margin: 0; font-family: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', Menlo, monospace; }
 .loading { padding: 24px; }
-.no-diff-message { padding: 16px; text-align: center; color: #656d76; background: #f8f9fa; }
-.no-diff-message p { margin: 0; font-style: italic; }
 </style>
