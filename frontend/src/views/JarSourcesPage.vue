@@ -27,14 +27,14 @@
     <div class="sources-container" v-if="!loading && sourceFiles.length > 0">
       <div class="sources-table">
         <el-table :data="sourceFiles" stripe>
-          <el-table-column prop="file_path" label="File Path" min-width="300">
+          <el-table-column prop="java_source_file.class_full_name" label="Class Name" min-width="300">
             <template #default="{ row }">
               <el-button 
                 type="primary" 
                 link 
                 @click="viewSourceFile(row)"
               >
-                {{ row.file_path }}
+                {{ row.java_source_file.class_full_name }}
               </el-button>
             </template>
           </el-table-column>

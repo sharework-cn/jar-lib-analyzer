@@ -7,7 +7,7 @@
           <el-tag type="success">+{{ diffSummary.insertions }}</el-tag>
           <el-tag type="danger">-{{ diffSummary.deletions }}</el-tag>
           <span class="summary-text">
-            {{ diffSummary.files_changed }}个文件变更
+            {{ diffSummary.files_changed }}个文件变更，共{{ fileChanges.length }}个文件
           </span>
         </div>
         <div class="view-toggle">
@@ -227,7 +227,13 @@ const selectFile = async (filePath) => {
 }
 
 const setViewMode = (mode) => {
-  viewMode.value = mode
+  if (mode === 'unified') {
+    // 跳转到单窗格页面
+    router.push(`/diff-unified/${itemType.value}/${encodeURIComponent(itemName.value)}/${fromVersion.value}/${toVersion.value}`)
+  } else {
+    // 保持在当前页面，切换到双窗格
+    viewMode.value = mode
+  }
 }
 
 const getLineClass = (type) => {
