@@ -308,8 +308,6 @@ watch(searchType, () => {
 }
 
 .search-container {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
   padding: 3rem 0;
   margin: -2rem -2rem 2rem -2rem;
 }
@@ -325,11 +323,12 @@ watch(searchType, () => {
   font-size: 2rem;
   font-weight: 600;
   margin-bottom: 0.5rem;
+  color: #212529;
 }
 
 .search-subtitle {
   font-size: 1.1rem;
-  opacity: 0.9;
+  color: #6c757d;
   margin-bottom: 2rem;
 }
 
