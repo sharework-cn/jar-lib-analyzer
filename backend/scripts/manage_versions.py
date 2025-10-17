@@ -347,18 +347,22 @@ class VersionManager:
         
         results = query.all()
         
-        # Update last_version_no
+        # Update last_version_no for each unique name
         for result in results:
             if table_name == 'jar_files':
+                # Update all files with the same jar_name
                 db.query(JarFile).filter(
                     JarFile.jar_name == result.jar_name
                 ).update({'last_version_no': result.max_version})
+                logger.debug(f"Updated {result.jar_name}: last_version_no = {result.max_version}")
             else:  # class_files
+                # Update all files with the same class_full_name
                 db.query(ClassFile).filter(
                     ClassFile.class_full_name == result.class_full_name
                 ).update({'last_version_no': result.max_version})
+                logger.debug(f"Updated {result.class_full_name}: last_version_no = {result.max_version}")
         
-        logger.info(f"Updated last_version_no for {len(results)} {table_name}")
+        logger.info(f"Updated last_version_no for {len(results)} unique {table_name}")
     
     
     def get_version_statistics(self, service_name=None):
