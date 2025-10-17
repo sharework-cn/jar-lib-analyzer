@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import create_engine, Column, Integer, String, Text, Boolean, DateTime, BigInteger, ForeignKey, func, and_, or_
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, Session, relationship
+from sqlalchemy.orm import sessionmaker, Session, relationship, joinedload
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 import os
@@ -645,7 +645,9 @@ async def search_items(q: str = Query(..., description="Search keyword"),
 @app.get("/api/jars/{jar_name}/sources/{version_no}")
 async def get_jar_source_files(jar_name: str, version_no: int, db: Session = Depends(get_db)):
     """Get JAR source files for a specific version"""
-    source_files = db.query(JavaSourceFileVersion).join(JavaSourceInJarFile).join(JarFile).filter(
+    source_files = db.query(JavaSourceFileVersion).join(JavaSourceInJarFile).join(JarFile).options(
+        joinedload(JavaSourceFileVersion.java_source_file)
+    ).filter(
         JarFile.jar_name == jar_name,
         JarFile.version_no == version_no,
         JarFile.is_third_party == False
