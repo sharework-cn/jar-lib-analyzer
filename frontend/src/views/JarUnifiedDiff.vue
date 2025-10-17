@@ -52,6 +52,7 @@ const summary = ref(null)
 const keyword = ref('')
 const onlyChanged = ref(false)
 
+const itemType = computed(() => route.params.type)
 const itemName = computed(() => decodeURIComponent(route.params.name))
 const fromVersion = computed(() => route.params.fromVersion)
 const toVersion = computed(() => route.params.toVersion)
@@ -69,7 +70,11 @@ const filteredFiles = computed(() => {
 const load = async () => {
   loading.value = true
   try {
-    const { data } = await axios.get(`/api/jars/${encodeURIComponent(itemName.value)}/diff`, {
+    const apiUrl = itemType.value === 'jar' 
+      ? `/api/jars/${encodeURIComponent(itemName.value)}/diff`
+      : `/api/classes/${encodeURIComponent(itemName.value)}/diff`
+    
+    const { data } = await axios.get(apiUrl, {
       params: { from_version: fromVersion.value, to_version: toVersion.value, format: 'unified', include: 'diff' }
     })
     summary.value = data.summary

@@ -54,6 +54,7 @@ const fromEditor = ref(null)
 const toEditor = ref(null)
 let fromEditorView = null
 let toEditorView = null
+let isScrolling = false // 防止滚动循环
 
 const formatFileSize = (bytes) => {
   if (!bytes) return '0 B'
@@ -105,13 +106,73 @@ const highlightDifferences = () => {
   // 这里可以添加更复杂的差异高亮逻辑
 }
 
+// 同步滚动功能
+const setupSyncScroll = () => {
+  if (!fromEditorView || !toEditorView) return
+  
+  // 监听左侧编辑器滚动
+  fromEditorView.scrollDOM.addEventListener('scroll', () => {
+    if (isScrolling) return
+    isScrolling = true
+    
+    const scrollTop = fromEditorView.scrollDOM.scrollTop
+    const scrollLeft = fromEditorView.scrollDOM.scrollLeft
+    
+    // 同步右侧编辑器滚动
+    toEditorView.scrollDOM.scrollTop = scrollTop
+    toEditorView.scrollDOM.scrollLeft = scrollLeft
+    
+    setTimeout(() => {
+      isScrolling = false
+    }, 10)
+  })
+  
+  // 监听右侧编辑器滚动
+  toEditorView.scrollDOM.addEventListener('scroll', () => {
+    if (isScrolling) return
+    isScrolling = true
+    
+    const scrollTop = toEditorView.scrollDOM.scrollTop
+    const scrollLeft = toEditorView.scrollDOM.scrollLeft
+    
+    // 同步左侧编辑器滚动
+    fromEditorView.scrollDOM.scrollTop = scrollTop
+    fromEditorView.scrollDOM.scrollLeft = scrollLeft
+    
+    setTimeout(() => {
+      isScrolling = false
+    }, 10)
+  })
+}
+
 onMounted(() => {
   if (fromEditor.value && toEditor.value) {
     fromEditorView = createEditor(fromEditor.value, props.fromContent || '')
     toEditorView = createEditor(toEditor.value, props.toContent || '')
     
-    // 暂时移除同步滚动功能，确保基本功能正常工作
-    // TODO: 后续实现更稳定的同步滚动
+    // 如果props中已经有内容，立即更新编辑器
+    if (props.fromContent) {
+      fromEditorView.dispatch({
+        changes: {
+          from: 0,
+          to: fromEditorView.state.doc.length,
+          insert: props.fromContent
+        }
+      })
+    }
+    
+    if (props.toContent) {
+      toEditorView.dispatch({
+        changes: {
+          from: 0,
+          to: toEditorView.state.doc.length,
+          insert: props.toContent
+        }
+      })
+    }
+    
+    // 设置同步滚动功能
+    setupSyncScroll()
   }
 })
 
@@ -191,6 +252,8 @@ watch(() => [props.fromContent, props.toContent], () => {
 .diff-container {
   display: flex;
   height: 600px;
+  width: 100%;
+  min-width: 0; /* 允许flex子项收缩 */
 }
 
 .diff-panel {
@@ -198,6 +261,8 @@ watch(() => [props.fromContent, props.toContent], () => {
   display: flex;
   flex-direction: column;
   border-right: 1px solid #d0d7de;
+  min-width: 0; /* 允许内容收缩 */
+  overflow: hidden; /* 防止内容溢出 */
 }
 
 .diff-panel:last-child {
@@ -226,17 +291,22 @@ watch(() => [props.fromContent, props.toContent], () => {
 .editor-container {
   flex: 1;
   overflow: hidden;
+  min-width: 0; /* 允许收缩 */
 }
 
 :deep(.cm-editor) {
   height: 100%;
+  width: 100%;
 }
 
 :deep(.cm-scroller) {
   height: 100%;
+  overflow: auto; /* 添加滚动条 */
 }
 
 :deep(.cm-content) {
+  min-width: max-content; /* 确保内容不会被压缩 */
+  white-space: pre; /* 保持代码格式 */
   padding: 16px;
   line-height: 1.4;
 }

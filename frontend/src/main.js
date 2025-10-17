@@ -13,7 +13,7 @@ const routes = [
   { path: '/', component: SearchPage },
   { path: '/history/:type/:name', component: VersionHistory },
   { path: '/diff/:type/:name/:fromVersion/:toVersion', component: DiffView },
-  { path: '/diff-unified/jar/:name/:fromVersion/:toVersion', component: JarUnifiedDiff }
+  { path: '/diff-unified/:type/:name/:fromVersion/:toVersion', component: JarUnifiedDiff }
 ]
 
 const router = createRouter({

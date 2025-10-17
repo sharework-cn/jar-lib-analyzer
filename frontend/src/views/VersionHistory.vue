@@ -39,7 +39,7 @@
                 查看差异
               </el-button>
               <el-button 
-                v-if="index > 0 && itemType === 'jar'" 
+                v-if="index > 0" 
                 size="small"
                 @click="goToUnifiedDiff(version.version_no, versions[index-1].version_no)"
               >
@@ -151,7 +151,7 @@ const goToDiff = (fromVersion, toVersion) => {
 }
 
 const goToUnifiedDiff = (fromVersion, toVersion) => {
-  router.push(`/diff-unified/jar/${encodeURIComponent(itemName.value)}/${fromVersion}/${toVersion}`)
+  router.push(`/diff-unified/${itemType.value}/${encodeURIComponent(itemName.value)}/${fromVersion}/${toVersion}`)
 }
 
 const viewSources = (versionNo) => {

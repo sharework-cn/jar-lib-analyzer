@@ -88,8 +88,8 @@ const diffSummary = ref(null)
 // 计算属性
 const itemType = computed(() => route.params.type)
 const itemName = computed(() => decodeURIComponent(route.params.name))
-const fromVersion = computed(() => route.params.fromVersion)
-const toVersion = computed(() => route.params.toVersion)
+const fromVersion = computed(() => parseInt(route.params.fromVersion))
+const toVersion = computed(() => parseInt(route.params.toVersion))
 
 const diffTitle = computed(() => {
   return `${itemName.value} 版本 ${fromVersion.value} → ${toVersion.value} 差异对比`
@@ -189,8 +189,11 @@ watch(() => route.params, () => {
 
 <style scoped>
 .diff-view {
-  max-width: 1400px;
+  width: 100%;
+  max-width: 100%;
   margin: 0 auto;
+  padding: 0 1rem;
+  box-sizing: border-box;
 }
 
 .diff-header {
@@ -233,6 +236,7 @@ watch(() => route.params, () => {
   border-radius: 8px;
   box-shadow: 0 2px 4px rgba(0,0,0,0.1);
   overflow: hidden;
+  width: 100%;
 }
 
 .file-item {
@@ -243,6 +247,7 @@ watch(() => route.params, () => {
   border-bottom: 1px solid #f1f3f4;
   cursor: pointer;
   transition: background-color 0.2s;
+  min-width: 0; /* 允许收缩 */
 }
 
 .file-item:hover {
@@ -263,6 +268,8 @@ watch(() => route.params, () => {
   align-items: center;
   gap: 0.5rem;
   flex: 1;
+  min-width: 0; /* 允许收缩 */
+  overflow: hidden;
 }
 
 .file-icon {
@@ -273,12 +280,18 @@ watch(() => route.params, () => {
   font-family: monospace;
   font-size: 0.875rem;
   color: #212529;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
 }
 
 .file-stats {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  flex-shrink: 0; /* 防止统计信息被压缩 */
 }
 
 .change-bar {
