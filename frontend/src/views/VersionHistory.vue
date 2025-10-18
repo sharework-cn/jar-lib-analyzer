@@ -94,6 +94,21 @@
     <div class="no-versions" v-if="!loading && versions.length === 0">
       <el-empty description="No version data available" />
     </div>
+    
+    <!-- 源码查看弹窗 -->
+    <el-dialog
+      v-model="sourceDialogVisible"
+      :title="selectedVersion ? `${itemName} - Version ${selectedVersion}` : ''"
+      width="80%"
+      :close-on-click-modal="false"
+    >
+      <div class="source-content" v-loading="sourceLoading">
+        <pre><code>{{ selectedSourceContent }}</code></pre>
+      </div>
+      <template #footer>
+        <el-button @click="sourceDialogVisible = false">Close</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -101,6 +116,8 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Clock, OfficeBuilding, Switch, View, Key } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
+import axios from 'axios'
 import { getVersionHistory } from '@/api/versions'
 
 const route = useRoute()
@@ -109,6 +126,12 @@ const router = useRouter()
 // 响应式数据
 const loading = ref(true)
 const versions = ref([])
+
+// 源码查看弹窗相关数据
+const sourceDialogVisible = ref(false)
+const selectedVersion = ref(null)
+const selectedSourceContent = ref('')
+const sourceLoading = ref(false)
 
 // 计算属性
 const itemType = computed(() => route.params.type)
@@ -163,12 +186,28 @@ const goToUnifiedDiff = (fromVersion, toVersion) => {
   router.push(`/diff-unified/${itemType.value}/${encodeURIComponent(itemName.value)}/${fromVersion}/${toVersion}`)
 }
 
-const viewSources = (versionNo) => {
+const viewSources = async (versionNo) => {
   // Navigate to JAR source files page
   if (itemType.value === 'jar') {
     router.push(`/jar-sources/${encodeURIComponent(itemName.value)}/${versionNo}`)
   } else {
-    ElMessage.info(`View source for version ${versionNo}`)
+    // Class文件：直接显示源码
+    try {
+      sourceLoading.value = true
+      const apiUrl = `/api/classes/${encodeURIComponent(itemName.value)}/sources/${versionNo}/content`
+      const response = await axios.get(apiUrl, {
+        params: { class_full_name: itemName.value }
+      })
+      
+      selectedVersion.value = versionNo
+      selectedSourceContent.value = response.data.content || ''
+      sourceDialogVisible.value = true
+    } catch (error) {
+      console.error('Failed to load source content:', error)
+      ElMessage.error('Failed to load source content')
+    } finally {
+      sourceLoading.value = false
+    }
   }
 }
 
@@ -337,6 +376,31 @@ onMounted(() => {
 .clickable-service-tag:hover {
   transform: scale(1.05);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.source-content {
+  max-height: 70vh;
+  overflow: auto;
+  background: #f8f9fa;
+  border-radius: 6px;
+  padding: 16px;
+}
+
+.source-content pre {
+  margin: 0;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 13px;
+  line-height: 1.4;
+  color: #24292f;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.source-content code {
+  background: transparent;
+  padding: 0;
+  border: none;
+  font-family: inherit;
 }
 
 .loading-container {
