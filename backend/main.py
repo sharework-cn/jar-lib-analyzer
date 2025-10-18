@@ -14,6 +14,7 @@ from datetime import datetime
 import hashlib
 import difflib
 import math
+import uuid
 
 # Database configuration
 DATABASE_URL = os.getenv("DATABASE_URL", "mysql+pymysql://jal:271828@172.30.80.95:32306/jal")
@@ -957,12 +958,16 @@ def generate_service_export_markdown(service, jar_files, class_files, db):
         
         if jar.version_no != latest_version:
             status = f"⚠️ Not Latest (Latest: {latest_version})"
+            # Generate unique anchor ID
+            jar_anchor_id = str(uuid.uuid4()).replace('-', '')[:16]
             jar_differences.append({
                 'jar_name': jar.jar_name,
                 'current_version': jar.version_no,
                 'latest_version': latest_version,
-                'type': 'jar'
+                'type': 'jar',
+                'anchor_id': jar_anchor_id
             })
+            status = f"⚠️ Not Latest (Latest: {latest_version}) - [View Differences](#{jar_anchor_id})"
         else:
             status = "✅ Latest Version"
         
@@ -989,12 +994,16 @@ def generate_service_export_markdown(service, jar_files, class_files, db):
         
         if class_file.version_no != latest_version:
             status = f"⚠️ Not Latest (Latest: {latest_version})"
+            # Generate unique anchor ID
+            class_anchor_id = str(uuid.uuid4()).replace('-', '')[:16]
             class_differences.append({
                 'class_name': class_file.class_full_name,
                 'current_version': class_file.version_no,
                 'latest_version': latest_version,
-                'type': 'class'
+                'type': 'class',
+                'anchor_id': class_anchor_id
             })
+            status = f"⚠️ Not Latest (Latest: {latest_version}) - [View Differences](#{class_anchor_id})"
         else:
             status = "✅ Latest Version"
         
@@ -1009,7 +1018,8 @@ def generate_service_export_markdown(service, jar_files, class_files, db):
         
         # JAR differences
         for i, diff in enumerate(jar_differences):
-            content.append(f"### JAR: {diff['jar_name']} (Version {diff['current_version']} → {diff['latest_version']})")
+            content.append(f'<a id="{diff["anchor_id"]}"/>')
+            content.append(f"### {diff['jar_name']} (Version {diff['current_version']} → {diff['latest_version']})")
             content.append("")
             
             try:
@@ -1025,7 +1035,8 @@ def generate_service_export_markdown(service, jar_files, class_files, db):
         
         # Class differences
         for i, diff in enumerate(class_differences):
-            content.append(f"### Class: {diff['class_name']} (Version {diff['current_version']} → {diff['latest_version']})")
+            content.append(f'<a id="{diff["anchor_id"]}"/>')
+            content.append(f"### {diff['class_name']} (Version {diff['current_version']} → {diff['latest_version']})")
             content.append("")
             
             try:
@@ -1132,8 +1143,10 @@ def get_jar_diff_content(jar_name, from_version, to_version, db):
             if from_content != to_content:
                 files_with_differences.append(class_name)
                 
-                # Add file header
-                diff_lines.append(f"## Class: {class_name}")
+                # Add file header with HTML anchor
+                class_anchor_id = str(uuid.uuid4()).replace('-', '')[:16]
+                diff_lines.append(f'<a id="{class_anchor_id}"/>')
+                diff_lines.append(f"#### {class_name}")
                 diff_lines.append("")
                 
                 # Generate diff using difflib
@@ -1222,8 +1235,10 @@ def get_class_diff_content(class_name, from_version, to_version, db):
                 # Remove trailing newlines to prevent double spacing
                 filtered_content.append(line.rstrip('\n'))
         
-        # Format as markdown
-        result = f"## Class: {class_name}\n\n"
+        # Format as markdown with HTML anchor
+        class_anchor_id = str(uuid.uuid4()).replace('-', '')[:16]
+        result = f'<a id="{class_anchor_id}"/>\n'
+        result += f"#### {class_name}\n\n"
         result += "```diff\n"
         result += "\n".join(filtered_content)
         result += "\n```"
