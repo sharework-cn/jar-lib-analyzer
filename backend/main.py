@@ -646,6 +646,17 @@ async def search_items(q: str = Query(..., description="Search keyword"),
 @app.get("/api/jars/{jar_name}/sources/{version_no}")
 async def get_jar_source_files(jar_name: str, version_no: int, db: Session = Depends(get_db)):
     """Get JAR source files for a specific version"""
+    # First get the JAR file to get its last_modified time
+    jar_file = db.query(JarFile).filter(
+        JarFile.jar_name == jar_name,
+        JarFile.version_no == version_no,
+        JarFile.is_third_party == False
+    ).first()
+    
+    if not jar_file:
+        raise HTTPException(status_code=404, detail="JAR file not found")
+    
+    # Get source files
     source_files = db.query(JavaSourceFileVersion).join(JavaSourceInJarFile).join(JarFile).options(
         joinedload(JavaSourceFileVersion.java_source_file)
     ).filter(
@@ -654,7 +665,21 @@ async def get_jar_source_files(jar_name: str, version_no: int, db: Session = Dep
         JarFile.is_third_party == False
     ).all()
     
-    return source_files
+    # Add JAR last_modified time to each source file
+    result = []
+    for source_file in source_files:
+        source_file_dict = {
+            "java_source_file": source_file.java_source_file,
+            "file_path": source_file.file_path,
+            "file_size": source_file.file_size,
+            "line_count": source_file.line_count,
+            "last_modified": jar_file.last_modified.isoformat() if jar_file.last_modified else None,  # Use JAR's last_modified
+            "version": source_file.version,
+            "file_content": source_file.file_content
+        }
+        result.append(source_file_dict)
+    
+    return result
 
 @app.get("/api/jars/{jar_name}/sources/{version_no}/content")
 async def get_jar_source_file_content(
@@ -727,10 +752,9 @@ async def get_jars(
     db: Session = Depends(get_db)
 ):
     """Get list of all JAR files with statistics and cursor-based pagination"""
-    # Build base query
+    # Build base query to get JAR names and basic stats
     base_query = db.query(
         JarFile.jar_name,
-        func.count(JarFile.id).label('version_count'),
         func.min(JarFile.last_modified).label('earliest_modified'),
         func.max(JarFile.last_modified).label('latest_modified')
     ).filter(
@@ -751,9 +775,24 @@ async def get_jars(
     
     result = []
     for stat in jar_stats:
+        jar_name = stat.jar_name
+        
+        # Count distinct versions for this JAR
+        version_count = db.query(func.count(func.distinct(JarFile.version_no))).filter(
+            JarFile.jar_name == jar_name,
+            JarFile.is_third_party == False
+        ).scalar()
+        
+        # Count distinct services using this JAR
+        service_count = db.query(func.count(func.distinct(JarFile.service_id))).filter(
+            JarFile.jar_name == jar_name,
+            JarFile.is_third_party == False
+        ).scalar()
+        
         result.append({
-            "jar_name": stat.jar_name,
-            "version_count": stat.version_count,
+            "jar_name": jar_name,
+            "version_count": version_count,
+            "service_count": service_count,
             "earliest_modified": stat.earliest_modified.isoformat() if stat.earliest_modified else None,
             "latest_modified": stat.latest_modified.isoformat() if stat.latest_modified else None
         })
@@ -1524,6 +1563,196 @@ def generate_diff_hunks(from_content: str, to_content: str) -> List[DiffHunk]:
         hunks.append(current_hunk)
     
     return hunks
+
+@app.get("/api/java-sources/{class_full_name}/versions")
+async def get_java_source_versions(
+    class_full_name: str,
+    db: Session = Depends(get_db)
+):
+    """Get version history for a Java source file"""
+    # Get all versions of this Java source file that are actually used by JAR or Class files
+    # First, get all source versions that are referenced by JAR files
+    jar_source_versions = db.query(JavaSourceFileVersion).join(
+        JavaSourceFile, JavaSourceFileVersion.java_source_file_id == JavaSourceFile.id
+    ).join(
+        JavaSourceInJarFile, JavaSourceFileVersion.id == JavaSourceInJarFile.java_source_file_version_id
+    ).filter(
+        JavaSourceFile.class_full_name == class_full_name
+    ).distinct().all()
+    
+    # Get all source versions that are referenced by Class files
+    class_source_versions = db.query(JavaSourceFileVersion).join(
+        JavaSourceFile, JavaSourceFileVersion.java_source_file_id == JavaSourceFile.id
+    ).join(
+        ClassFile, JavaSourceFileVersion.id == ClassFile.java_source_file_version_id
+    ).filter(
+        JavaSourceFile.class_full_name == class_full_name
+    ).distinct().all()
+    
+    # Combine and deduplicate the versions
+    all_versions = {}
+    for version in jar_source_versions + class_source_versions:
+        all_versions[version.id] = version
+    
+    if not all_versions:
+        raise HTTPException(status_code=404, detail="Java source file not found")
+    
+    result = []
+    for version in sorted(all_versions.values(), key=lambda x: x.id, reverse=True):
+        # Get JAR files containing this version
+        jar_files = db.query(JarFile, Service.service_name).join(
+            JavaSourceInJarFile, JarFile.id == JavaSourceInJarFile.jar_file_id
+        ).join(
+            Service, JarFile.service_id == Service.id
+        ).filter(
+            JavaSourceInJarFile.java_source_file_version_id == version.id
+        ).all()
+        
+        # Get Class files containing this version
+        class_files = db.query(ClassFile, Service.service_name).join(
+            Service, ClassFile.service_id == Service.id
+        ).filter(
+            ClassFile.java_source_file_version_id == version.id
+        ).all()
+        
+        # Collect services and determine the actual version numbers
+        services = set()
+        jar_services = []
+        class_services = []
+        
+        # Use version_no from JAR/Class files as the actual version
+        actual_version = None
+        
+        for jar_file, service_name in jar_files:
+            services.add(service_name)
+            if actual_version is None:
+                actual_version = jar_file.version_no
+            jar_services.append({
+                "jar_name": jar_file.jar_name,
+                "version_no": jar_file.version_no,
+                "last_version_no": jar_file.last_version_no,
+                "service_name": service_name,
+                "service_id": jar_file.service_id,
+                "last_modified": jar_file.last_modified.isoformat() if jar_file.last_modified else None,
+                "file_size": jar_file.file_size
+            })
+        
+        for class_file, service_name in class_files:
+            services.add(service_name)
+            if actual_version is None:
+                actual_version = class_file.version_no
+            class_services.append({
+                "class_full_name": class_file.class_full_name,
+                "version_no": class_file.version_no,
+                "last_version_no": class_file.last_version_no,
+                "service_name": service_name,
+                "service_id": class_file.service_id,
+                "last_modified": class_file.last_modified.isoformat() if class_file.last_modified else None,
+                "file_size": class_file.file_size
+            })
+        
+        # Only include versions that have associated JAR or Class files
+        if jar_services or class_services:
+            # Use the source file version ID as a fallback if no JAR/Class files
+            if actual_version is None:
+                actual_version = version.id
+            
+            result.append({
+                "version": actual_version,
+                "source_version_id": version.id,  # Keep the source version ID for reference
+                "file_size": version.file_size,
+                "file_hash": version.file_hash,
+                "created_at": version.created_at.isoformat() if version.created_at else None,
+                "service_count": len(services),
+                "services": list(services),
+                "jar_files": jar_services,
+                "class_files": class_services
+            })
+    
+    return result
+
+@app.get("/api/java-sources/{class_full_name}/diff/{from_version}/{to_version}")
+async def get_java_source_diff(
+    class_full_name: str,
+    from_version: int,
+    to_version: int,
+    db: Session = Depends(get_db)
+):
+    """Get diff between two versions of a Java source file"""
+    # First get the source versions to find the source_version_id
+    source_versions = db.query(JavaSourceFileVersion).join(
+        JavaSourceFile, JavaSourceFileVersion.java_source_file_id == JavaSourceFile.id
+    ).filter(
+        JavaSourceFile.class_full_name == class_full_name
+    ).order_by(JavaSourceFileVersion.id.desc()).all()
+    
+    if not source_versions:
+        raise HTTPException(status_code=404, detail="Java source file not found")
+    
+    # Find the source versions that correspond to the requested version numbers
+    from_source_version = None
+    to_source_version = None
+    
+    for version in source_versions:
+        # Check if this version corresponds to the requested version number
+        # by looking at associated JAR/Class files
+        jar_files = db.query(JarFile).join(
+            JavaSourceInJarFile, JarFile.id == JavaSourceInJarFile.jar_file_id
+        ).filter(
+            JavaSourceInJarFile.java_source_file_version_id == version.id
+        ).all()
+        
+        class_files = db.query(ClassFile).filter(
+            ClassFile.java_source_file_version_id == version.id
+        ).all()
+        
+        # Determine the actual version number for this source version
+        actual_version = None
+        if jar_files:
+            actual_version = jar_files[0].version_no
+        elif class_files:
+            actual_version = class_files[0].version_no
+        else:
+            actual_version = version.id  # fallback
+        
+        if actual_version == from_version:
+            from_source_version = version
+        if actual_version == to_version:
+            to_source_version = version
+    
+    if not from_source_version or not to_source_version:
+        raise HTTPException(status_code=404, detail="Source version not found")
+    
+    # Get source content
+    from_content = from_source_version.file_content or ""
+    to_content = to_source_version.file_content or ""
+    
+    # Generate diff
+    from difflib import unified_diff
+    diff_lines = list(unified_diff(
+        from_content.splitlines(keepends=True),
+        to_content.splitlines(keepends=True),
+        fromfile=f"{class_full_name} (v{from_version})",
+        tofile=f"{class_full_name} (v{to_version})",
+        lineterm=""
+    ))
+    
+    # Calculate statistics
+    additions = sum(1 for line in diff_lines if line.startswith('+') and not line.startswith('+++'))
+    deletions = sum(1 for line in diff_lines if line.startswith('-') and not line.startswith('---'))
+    
+    return {
+        "class_full_name": class_full_name,
+        "from_version": from_version,
+        "to_version": to_version,
+        "unified_diff": ''.join(diff_lines),
+        "additions": additions,
+        "deletions": deletions,
+        "files_changed": 1 if additions > 0 or deletions > 0 else 0,
+        "from_content": from_content,
+        "to_content": to_content,
+        "has_changes": additions > 0 or deletions > 0
+    }
 
 if __name__ == "__main__":
     import uvicorn
