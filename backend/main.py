@@ -928,7 +928,8 @@ async def get_class_diff(
                     "additions": additions,
                     "deletions": deletions,
                     "unified_diff": unified_str,
-                    "language": "java"
+                    "language": "java",
+                    "class_full_name": class_name
                 }]
             }
         else:
