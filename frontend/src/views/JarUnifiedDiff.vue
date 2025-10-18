@@ -30,12 +30,12 @@
                   <span class="stat removed">-{{ f.deletions }}</span>
                 </template>
               </div>
-              <div class="file-actions" v-if="itemType === 'jar'">
+              <div class="file-actions" v-if="itemType === 'jar' || itemType === 'class'">
                 <el-button 
                   type="primary" 
                   link 
                   size="small"
-                  @click="viewSource(fromVersion, f.class_full_name)"
+                  @click="viewSource(fromVersion, f.class_full_name, f.change_type)"
                 >
                   查看源码
                 </el-button>
@@ -44,7 +44,7 @@
                   type="primary" 
                   link 
                   size="small"
-                  @click="viewSource(toVersion, f.class_full_name)"
+                  @click="viewSource(toVersion, f.class_full_name, f.change_type)"
                 >
                   查看源码
                 </el-button>
@@ -122,27 +122,51 @@ const load = async () => {
   }
 }
 
-const viewSource = async (version, classFullName) => {
-  if (itemType.value === 'jar' && itemName.value) {
-    try {
-      // 将类名转换为文件路径格式
-      const filePath = classFullName.replace(/\./g, '/') + '.java'
-      
-      // 获取源码内容
-      const response = await axios.get(`/api/jars/${encodeURIComponent(itemName.value)}/sources/${version}/content`, {
-        params: { file_path: filePath }
-      })
-      
-      // 设置弹窗内容
-      selectedFile.value = {
-        class_full_name: classFullName,
-        version: version
+const viewSource = async (version, classFullName, changeType) => {
+  if ((itemType.value === 'jar' || itemType.value === 'class') && itemName.value) {
+    if (changeType === 'unchanged') {
+      // 无差异：弹窗显示源码
+      try {
+        let apiUrl
+        if (itemType.value === 'jar') {
+          // JAR文件：通过JAR源码API获取
+          const filePath = classFullName.replace(/\./g, '/') + '.java'
+          apiUrl = `/api/jars/${encodeURIComponent(itemName.value)}/sources/${version}/content`
+          const response = await axios.get(apiUrl, {
+            params: { file_path: filePath }
+          })
+          selectedFileContent.value = response.data.content || ''
+        } else {
+          // Class文件：通过Class源码API获取
+          apiUrl = `/api/classes/${encodeURIComponent(itemName.value)}/sources/${version}/content`
+          const response = await axios.get(apiUrl, {
+            params: { file_path: classFullName.replace(/\./g, '/') + '.java' }
+          })
+          selectedFileContent.value = response.data.content || ''
+        }
+        
+        // 设置弹窗内容
+        selectedFile.value = {
+          class_full_name: classFullName,
+          version: version
+        }
+        sourceDialogVisible.value = true
+      } catch (error) {
+        console.error('Failed to load source content:', error)
+        ElMessage.error('Failed to load source content')
       }
-      selectedFileContent.value = response.data.content || ''
-      sourceDialogVisible.value = true
-    } catch (error) {
-      console.error('Failed to load source content:', error)
-      ElMessage.error('Failed to load source content')
+    } else {
+      // 有差异：跳转到双窗格源码展示页面
+      if (itemType.value === 'jar') {
+        const jarName = encodeURIComponent(itemName.value)
+        const encodedClassName = encodeURIComponent(classFullName)
+        window.open(`/diff/jar-file/${jarName}/${fromVersion.value}/${toVersion.value}?file=${encodedClassName}`, '_blank')
+      } else {
+        // Class文件：跳转到Class双窗格页面
+        const className = encodeURIComponent(itemName.value)
+        const encodedClassName = encodeURIComponent(classFullName)
+        window.open(`/diff/class-file/${className}/${fromVersion.value}/${toVersion.value}?file=${encodedClassName}`, '_blank')
+      }
     }
   }
 }

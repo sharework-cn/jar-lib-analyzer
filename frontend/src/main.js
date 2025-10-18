@@ -20,7 +20,8 @@ const routes = [
   { path: '/history/:type/:name', component: VersionHistory },
   { path: '/jar-sources/:jarName/:versionNo', component: JarSourcesPage },
   { path: '/diff/:type/:name/:fromVersion/:toVersion', component: DiffView },
-  { path: '/diff/jar-file/:jarName/:fromVersion/:toVersion/:filePath', component: JarFileDiff },
+  { path: '/diff/jar-file/:jarName/:fromVersion/:toVersion', component: JarFileDiff },
+  { path: '/diff/class-file/:className/:fromVersion/:toVersion', component: JarFileDiff },
   { path: '/diff-unified/:type/:name/:fromVersion/:toVersion', component: JarUnifiedDiff }
 ]
 

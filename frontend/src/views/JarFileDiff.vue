@@ -14,7 +14,7 @@
           <h2>{{ diffTitle }}</h2>
           <div class="file-path">
             <el-icon><Document /></el-icon>
-            <span>{{ filePath }}</span>
+            <span>{{ classFullName }}</span>
           </div>
         </div>
       </div>
@@ -23,7 +23,7 @@
     <!-- 差异内容 -->
     <div class="diff-content" v-if="!loading && fileData">
       <DiffViewer
-        :file-path="filePath"
+        :file-path="classFullName"
         :from-version="fromVersion"
         :to-version="toVersion"
         :from-content="fileData.fromContent"
@@ -65,22 +65,37 @@ const fileStats = ref({})
 
 // 计算属性
 const jarName = computed(() => decodeURIComponent(route.params.jarName))
+const className = computed(() => decodeURIComponent(route.params.className))
 const fromVersion = computed(() => parseInt(route.params.fromVersion))
 const toVersion = computed(() => parseInt(route.params.toVersion))
-const filePath = computed(() => decodeURIComponent(route.params.filePath))
+const classFullName = computed(() => route.query.file ? decodeURIComponent(route.query.file) : '')
+
+// 判断是JAR文件还是Class文件
+const isJarFile = computed(() => route.path.includes('/diff/jar-file/'))
+const isClassFile = computed(() => route.path.includes('/diff/class-file/'))
+
+// 获取文件名
+const fileName = computed(() => isJarFile.value ? jarName.value : className.value)
 
 const diffTitle = computed(() => {
-  return `${jarName.value} 版本 ${fromVersion.value} → ${toVersion.value} 差异对比`
+  const fileType = isJarFile.value ? 'JAR' : 'Class'
+  return `${fileName.value} 版本 ${fromVersion.value} → ${toVersion.value} 差异对比`
 })
 
 // 方法
 const loadFileDiff = async () => {
   loading.value = true
   try {
-    console.log('Loading JAR file diff:', jarName.value, fromVersion.value, toVersion.value, filePath.value)
+    console.log('Loading file diff:', fileName.value, fromVersion.value, toVersion.value, classFullName.value)
     
-    // 获取文件差异数据
-    const diff = await getVersionDiff('jar', jarName.value, fromVersion.value, toVersion.value, filePath.value)
+    // 根据文件类型获取差异数据
+    const diff = await getVersionDiff(
+      isJarFile.value ? 'jar' : 'class', 
+      fileName.value, 
+      fromVersion.value, 
+      toVersion.value, 
+      classFullName.value
+    )
     
     // 获取文件内容
     const fromContent = diff.from_content || ''
@@ -92,8 +107,13 @@ const loadFileDiff = async () => {
     }
     
     // 获取文件统计信息（从文件变更列表中查找）
-    const summaryData = await getVersionDiff('jar', jarName.value, fromVersion.value, toVersion.value)
-    const fileChange = summaryData.file_changes?.find(f => f.file_path === filePath.value)
+    const summaryData = await getVersionDiff(
+      isJarFile.value ? 'jar' : 'class', 
+      fileName.value, 
+      fromVersion.value, 
+      toVersion.value
+    )
+    const fileChange = summaryData.file_changes?.find(f => f.file_path === classFullName.value)
     
     if (fileChange) {
       fileStats.value = {
