@@ -39,15 +39,6 @@
                 >
                   查看源码
                 </el-button>
-                <el-button 
-                  v-if="f.change_type !== 'unchanged'"
-                  type="primary" 
-                  link 
-                  size="small"
-                  @click="viewSource(toVersion, f.class_full_name, f.change_type)"
-                >
-                  查看源码
-                </el-button>
               </div>
             </div>
           </div>
@@ -116,7 +107,8 @@ const load = async () => {
       params: { from_version: fromVersion.value, to_version: toVersion.value, format: 'unified', include: 'diff' }
     })
     summary.value = data.summary
-    files.value = data.files || []
+    // JAR API返回files，Class API返回file_changes
+    files.value = data.files || data.file_changes || []
   } finally {
     loading.value = false
   }

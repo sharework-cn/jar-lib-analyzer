@@ -17,7 +17,7 @@
             <span class="file-size">{{ formatFileSize(sizeBefore) }}</span>
           </div>
           <el-button 
-            v-if="itemType === 'jar'"
+            v-if="itemType === 'jar' || itemType === 'class'"
             type="primary" 
             link 
             size="small"
@@ -36,7 +36,7 @@
             <span class="file-size">{{ formatFileSize(sizeAfter) }}</span>
           </div>
           <el-button 
-            v-if="itemType === 'jar'"
+            v-if="itemType === 'jar' || itemType === 'class'"
             type="primary" 
             link 
             size="small"
@@ -48,6 +48,21 @@
         <div ref="toEditor" class="editor-container"></div>
       </div>
     </div>
+    
+    <!-- 源码查看弹窗 -->
+    <el-dialog
+      v-model="sourceDialogVisible"
+      :title="selectedFile ? `${selectedFile.class_full_name} - Version ${selectedFile.version}` : ''"
+      width="80%"
+      :close-on-click-modal="false"
+    >
+      <div class="source-content">
+        <pre><code>{{ selectedFileContent }}</code></pre>
+      </div>
+      <template #footer>
+        <el-button @click="sourceDialogVisible = false">Close</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -57,6 +72,8 @@ import { EditorView, basicSetup } from 'codemirror'
 import { java } from '@codemirror/lang-java'
 import { oneDark } from '@codemirror/theme-one-dark'
 import { EditorState } from '@codemirror/state'
+import axios from 'axios'
+import { ElMessage } from 'element-plus'
 import { ViewUpdate } from '@codemirror/view'
 
 const props = defineProps({
@@ -80,6 +97,11 @@ let fromEditorView = null
 let toEditorView = null
 let isScrolling = false // 防止滚动循环
 
+// 源码查看弹窗相关数据
+const sourceDialogVisible = ref(false)
+const selectedFile = ref(null)
+const selectedFileContent = ref('')
+
 const formatFileSize = (bytes) => {
   if (!bytes) return '0 B'
   const k = 1024
@@ -88,10 +110,37 @@ const formatFileSize = (bytes) => {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
 }
 
-const viewSource = (version) => {
-  if (props.itemType === 'jar' && props.itemName) {
-    const jarName = encodeURIComponent(props.itemName)
-    window.open(`/jar-sources/${jarName}/${version}`, '_blank')
+const viewSource = async (version) => {
+  if ((props.itemType === 'jar' || props.itemType === 'class') && props.itemName) {
+    try {
+      let apiUrl
+      if (props.itemType === 'jar') {
+        // JAR文件：通过JAR源码API获取
+        const filePath = props.filePath.replace(/\./g, '/') + '.java'
+        apiUrl = `/api/jars/${encodeURIComponent(props.itemName)}/sources/${version}/content`
+        const response = await axios.get(apiUrl, {
+          params: { file_path: filePath }
+        })
+        selectedFileContent.value = response.data.content || ''
+      } else {
+        // Class文件：通过Class源码API获取
+        apiUrl = `/api/classes/${encodeURIComponent(props.itemName)}/sources/${version}/content`
+        const response = await axios.get(apiUrl, {
+          params: { file_path: props.filePath.replace(/\./g, '/') + '.java' }
+        })
+        selectedFileContent.value = response.data.content || ''
+      }
+      
+      // 设置弹窗内容
+      selectedFile.value = {
+        class_full_name: props.filePath,
+        version: version
+      }
+      sourceDialogVisible.value = true
+    } catch (error) {
+      console.error('Failed to load source content:', error)
+      ElMessage.error('Failed to load source content')
+    }
   }
 }
 
@@ -346,6 +395,31 @@ watch(() => [props.fromContent, props.toContent], () => {
   white-space: pre; /* 保持代码格式 */
   padding: 16px;
   line-height: 1.4;
+}
+
+.source-content {
+  max-height: 70vh;
+  overflow: auto;
+  background: #f8f9fa;
+  border-radius: 6px;
+  padding: 16px;
+}
+
+.source-content pre {
+  margin: 0;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 13px;
+  line-height: 1.4;
+  color: #24292f;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.source-content code {
+  background: transparent;
+  padding: 0;
+  border: none;
+  font-family: inherit;
 }
 
 :deep(.cm-focused) {

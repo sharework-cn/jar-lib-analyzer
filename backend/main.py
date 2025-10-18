@@ -852,7 +852,8 @@ async def get_class_diff(
             changes=changes,
             change_percentage=round(change_percentage, 1),
             size_before=from_source.file_size or 0,
-            size_after=to_source.file_size or 0
+            size_after=to_source.file_size or 0,
+            class_full_name=class_name
         )]
         
         summary = DiffSummary(

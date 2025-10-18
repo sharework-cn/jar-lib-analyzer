@@ -33,6 +33,8 @@
         :change-percentage="fileStats.change_percentage"
         :size-before="fileStats.size_before"
         :size-after="fileStats.size_after"
+        :item-type="isJarFile ? 'jar' : 'class'"
+        :item-name="fileName"
       />
     </div>
 
