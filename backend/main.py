@@ -718,6 +718,187 @@ async def get_class_source_file_content(
     
     return {"content": source_file.file_content or ""}
 
+# New API endpoints for JARs and Java Sources
+@app.get("/api/jars")
+async def get_jars(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    last_jar_name: str = Query(None, description="Last jar name from previous page for cursor-based pagination"),
+    db: Session = Depends(get_db)
+):
+    """Get list of all JAR files with statistics and cursor-based pagination"""
+    # Build base query
+    base_query = db.query(
+        JarFile.jar_name,
+        func.count(JarFile.id).label('version_count'),
+        func.min(JarFile.last_modified).label('earliest_modified'),
+        func.max(JarFile.last_modified).label('latest_modified')
+    ).filter(
+        JarFile.is_third_party == False
+    ).group_by(JarFile.jar_name)
+    
+    # Apply cursor-based pagination
+    if last_jar_name:
+        base_query = base_query.filter(JarFile.jar_name > last_jar_name)
+    
+    # Get data with limit + 1 to check if there are more pages
+    jar_stats = base_query.order_by(JarFile.jar_name).limit(limit + 1).all()
+    
+    # Check if there are more pages
+    has_more = len(jar_stats) > limit
+    if has_more:
+        jar_stats = jar_stats[:limit]  # Remove the extra record
+    
+    result = []
+    for stat in jar_stats:
+        result.append({
+            "jar_name": stat.jar_name,
+            "version_count": stat.version_count,
+            "earliest_modified": stat.earliest_modified.isoformat() if stat.earliest_modified else None,
+            "latest_modified": stat.latest_modified.isoformat() if stat.latest_modified else None
+        })
+    
+    return {
+        "data": result,
+        "has_more": has_more,
+        "last_jar_name": result[-1]["jar_name"] if result else None,
+        "limit": limit
+    }
+
+@app.get("/api/java-sources")
+async def get_java_sources(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    last_class_name: str = Query(None, description="Last class name from previous page for cursor-based pagination"),
+    db: Session = Depends(get_db)
+):
+    """Get list of all Java source files with source information and cursor-based pagination"""
+    # Build base query
+    base_query = db.query(
+        JavaSourceFile.class_full_name,
+        func.count(JavaSourceFile.id).label('version_count')
+    ).group_by(JavaSourceFile.class_full_name)
+    
+    # Apply cursor-based pagination
+    if last_class_name:
+        base_query = base_query.filter(JavaSourceFile.class_full_name > last_class_name)
+    
+    # Get data with limit + 1 to check if there are more pages
+    source_stats = base_query.order_by(JavaSourceFile.class_full_name).limit(limit + 1).all()
+    
+    # Check if there are more pages
+    has_more = len(source_stats) > limit
+    if has_more:
+        source_stats = source_stats[:limit]  # Remove the extra record
+    
+    result = []
+    for stat in source_stats:
+        # Check if this source is in JAR files
+        jar_count = db.query(JavaSourceInJarFile).join(
+            JavaSourceFileVersion, JavaSourceInJarFile.java_source_file_version_id == JavaSourceFileVersion.id
+        ).join(
+            JavaSourceFile, JavaSourceFileVersion.java_source_file_id == JavaSourceFile.id
+        ).filter(
+            JavaSourceFile.class_full_name == stat.class_full_name
+        ).count()
+        
+        # Check if this source is in Class files
+        class_count = db.query(ClassFile).join(
+            JavaSourceFileVersion, ClassFile.java_source_file_version_id == JavaSourceFileVersion.id
+        ).join(
+            JavaSourceFile, JavaSourceFileVersion.java_source_file_id == JavaSourceFile.id
+        ).filter(
+            JavaSourceFile.class_full_name == stat.class_full_name
+        ).count()
+        
+        # Determine source type
+        source_types = []
+        if jar_count > 0:
+            source_types.append("JAR")
+        if class_count > 0:
+            source_types.append("Class")
+        
+        result.append({
+            "class_full_name": stat.class_full_name,
+            "version_count": stat.version_count,
+            "source_types": source_types,
+            "jar_count": jar_count,
+            "class_count": class_count
+        })
+    
+    return {
+        "data": result,
+        "has_more": has_more,
+        "last_class_name": result[-1]["class_full_name"] if result else None,
+        "limit": limit
+    }
+
+@app.get("/api/java-sources/{class_full_name}/details", response_model=Dict[str, Any])
+async def get_java_source_details(
+    class_full_name: str,
+    db: Session = Depends(get_db)
+):
+    """Get detailed information about a Java source file"""
+    # Get the Java source file
+    java_source = db.query(JavaSourceFile).filter(
+        JavaSourceFile.class_full_name == class_full_name
+    ).first()
+    
+    if not java_source:
+        raise HTTPException(status_code=404, detail="Java source file not found")
+    
+    # Get JAR files containing this source
+    jar_files = db.query(JarFile, JavaSourceFileVersion.version).join(
+        JavaSourceInJarFile, JarFile.id == JavaSourceInJarFile.jar_file_id
+    ).join(
+        JavaSourceFileVersion, JavaSourceInJarFile.java_source_file_version_id == JavaSourceFileVersion.id
+    ).join(
+        JavaSourceFile, JavaSourceFileVersion.java_source_file_id == JavaSourceFile.id
+    ).filter(
+        JavaSourceFile.class_full_name == class_full_name
+    ).all()
+    
+    # Get Class files containing this source
+    class_files = db.query(ClassFile, JavaSourceFileVersion.version).join(
+        JavaSourceFileVersion, ClassFile.java_source_file_version_id == JavaSourceFileVersion.id
+    ).join(
+        JavaSourceFile, JavaSourceFileVersion.java_source_file_id == JavaSourceFile.id
+    ).filter(
+        JavaSourceFile.class_full_name == class_full_name
+    ).all()
+    
+    result = {
+        "class_full_name": class_full_name,
+        "jar_files": [],
+        "class_files": []
+    }
+    
+    # Process JAR files
+    for jar_file, version in jar_files:
+        result["jar_files"].append({
+            "jar_name": jar_file.jar_name,
+            "version_no": jar_file.version_no,
+            "last_version_no": jar_file.last_version_no,
+            "last_modified": jar_file.last_modified.isoformat() if jar_file.last_modified else None,
+            "file_size": jar_file.file_size,
+            "service_id": jar_file.service_id,
+            "source_version": version
+        })
+    
+    # Process Class files
+    for class_file, version in class_files:
+        result["class_files"].append({
+            "class_full_name": class_file.class_full_name,
+            "version_no": class_file.version_no,
+            "last_version_no": class_file.last_version_no,
+            "last_modified": class_file.last_modified.isoformat() if class_file.last_modified else None,
+            "file_size": class_file.file_size,
+            "service_id": class_file.service_id,
+            "source_version": version
+        })
+    
+    return result
+
 @app.get("/api/jars/{jar_name}/versions", response_model=VersionHistory)
 async def get_jar_versions(jar_name: str):
     db = SessionLocal()

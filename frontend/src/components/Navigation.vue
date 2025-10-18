@@ -14,6 +14,14 @@
       <el-icon><OfficeBuilding /></el-icon>
       <span>Services</span>
     </el-menu-item>
+    <el-menu-item index="/jars">
+      <el-icon><FolderOpened /></el-icon>
+      <span>JARs</span>
+    </el-menu-item>
+    <el-menu-item index="/java-sources">
+      <el-icon><Document /></el-icon>
+      <span>Java Sources</span>
+    </el-menu-item>
   </el-menu>
 </template>
 
