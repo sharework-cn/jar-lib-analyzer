@@ -688,31 +688,19 @@ async def get_jar_source_files(jar_name: str, version_no: int, db: Session = Dep
 async def get_jar_source_file_content(
     jar_name: str, 
     version_no: int, 
-    file_path: str = Query(..., description="File path"),
+    class_full_name: str = Query(..., description="Class full name"),
     db: Session = Depends(get_db)
 ):
-    """Get specific JAR source file content"""
-    # 首先尝试通过file_path精确匹配
-    source_file = db.query(JavaSourceFileVersion).join(JavaSourceInJarFile).join(JarFile).filter(
+    """Get specific JAR source file content by class full name"""
+    # 通过class_full_name直接匹配
+    source_file = db.query(JavaSourceFileVersion).join(JavaSourceInJarFile).join(JarFile).join(
+        JavaSourceFile, JavaSourceFileVersion.java_source_file_id == JavaSourceFile.id
+    ).filter(
         JarFile.jar_name == jar_name,
         JarFile.version_no == version_no,
-        JavaSourceFileVersion.file_path == file_path,
+        JavaSourceFile.class_full_name == class_full_name,
         JarFile.is_third_party == False
     ).first()
-    
-    # 如果精确匹配失败，尝试通过类名匹配
-    if not source_file:
-        # 从file_path中提取类名（去掉.java后缀，将/替换为.）
-        class_name = file_path.replace('.java', '').replace('/', '.')
-        
-        source_file = db.query(JavaSourceFileVersion).join(JavaSourceInJarFile).join(JarFile).join(
-            JavaSourceFile, JavaSourceFileVersion.java_source_file_id == JavaSourceFile.id
-        ).filter(
-            JarFile.jar_name == jar_name,
-            JarFile.version_no == version_no,
-            JavaSourceFile.class_full_name == class_name,
-            JarFile.is_third_party == False
-        ).first()
     
     if not source_file:
         raise HTTPException(status_code=404, detail="Source file not found")

@@ -135,7 +135,7 @@ const viewSourceFile = async (file) => {
   sourceDialogVisible.value = true
   
   try {
-    const content = await getJarSourceFileContent(jarName.value, versionNo.value, file.file_path)
+    const content = await getJarSourceFileContent(jarName.value, versionNo.value, file.java_source_file.class_full_name)
     selectedFileContent.value = content
   } catch (error) {
     console.error('Failed to load file content:', error)

@@ -122,17 +122,16 @@ const viewSource = async (version, classFullName, changeType) => {
         let apiUrl
         if (itemType.value === 'jar') {
           // JAR文件：通过JAR源码API获取
-          const filePath = classFullName.replace(/\./g, '/') + '.java'
           apiUrl = `/api/jars/${encodeURIComponent(itemName.value)}/sources/${version}/content`
           const response = await axios.get(apiUrl, {
-            params: { file_path: filePath }
+            params: { class_full_name: classFullName }
           })
           selectedFileContent.value = response.data.content || ''
         } else {
           // Class文件：通过Class源码API获取
           apiUrl = `/api/classes/${encodeURIComponent(itemName.value)}/sources/${version}/content`
           const response = await axios.get(apiUrl, {
-            params: { file_path: classFullName.replace(/\./g, '/') + '.java' }
+            params: { class_full_name: classFullName }
           })
           selectedFileContent.value = response.data.content || ''
         }

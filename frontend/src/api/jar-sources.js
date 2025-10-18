@@ -9,9 +9,9 @@ export const getJarSourceFiles = async (jarName, versionNo) => {
 }
 
 // Get specific JAR source file content
-export const getJarSourceFileContent = async (jarName, versionNo, filePath) => {
+export const getJarSourceFileContent = async (jarName, versionNo, classFullName) => {
   const response = await axios.get(`${API_BASE_URL}/api/jars/${encodeURIComponent(jarName)}/sources/${versionNo}/content`, {
-    params: { file_path: filePath }
+    params: { class_full_name: classFullName }
   })
   return response.data.content
 }

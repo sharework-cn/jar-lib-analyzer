@@ -119,7 +119,7 @@ const viewSource = async (version) => {
         const filePath = props.filePath.replace(/\./g, '/') + '.java'
         apiUrl = `/api/jars/${encodeURIComponent(props.itemName)}/sources/${version}/content`
         const response = await axios.get(apiUrl, {
-          params: { file_path: filePath }
+          params: { class_full_name: props.filePath }
         })
         selectedFileContent.value = response.data.content || ''
       } else {
