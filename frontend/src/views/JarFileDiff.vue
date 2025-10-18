@@ -68,7 +68,7 @@ const jarName = computed(() => decodeURIComponent(route.params.jarName))
 const className = computed(() => decodeURIComponent(route.params.className))
 const fromVersion = computed(() => parseInt(route.params.fromVersion))
 const toVersion = computed(() => parseInt(route.params.toVersion))
-const classFullName = computed(() => route.query.file ? decodeURIComponent(route.query.file) : '')
+const classFullName = computed(() => route.query.class_full_name ? decodeURIComponent(route.query.class_full_name) : '')
 
 // 判断是JAR文件还是Class文件
 const isJarFile = computed(() => route.path.includes('/diff/jar-file/'))
@@ -88,13 +88,16 @@ const loadFileDiff = async () => {
   try {
     console.log('Loading file diff:', fileName.value, fromVersion.value, toVersion.value, classFullName.value)
     
+    // 将类名转换为文件路径格式
+    const filePath = classFullName.value.replace(/\./g, '/') + '.java'
+    
     // 根据文件类型获取差异数据
     const diff = await getVersionDiff(
       isJarFile.value ? 'jar' : 'class', 
       fileName.value, 
       fromVersion.value, 
       toVersion.value, 
-      classFullName.value
+      filePath
     )
     
     // 获取文件内容
@@ -113,7 +116,7 @@ const loadFileDiff = async () => {
       fromVersion.value, 
       toVersion.value
     )
-    const fileChange = summaryData.file_changes?.find(f => f.file_path === classFullName.value)
+    const fileChange = summaryData.file_changes?.find(f => f.file_path === filePath)
     
     if (fileChange) {
       fileStats.value = {

@@ -160,12 +160,12 @@ const viewSource = async (version, classFullName, changeType) => {
       if (itemType.value === 'jar') {
         const jarName = encodeURIComponent(itemName.value)
         const encodedClassName = encodeURIComponent(classFullName)
-        window.open(`/diff/jar-file/${jarName}/${fromVersion.value}/${toVersion.value}?file=${encodedClassName}`, '_blank')
+        window.open(`/diff/jar-file/${jarName}/${fromVersion.value}/${toVersion.value}?class_full_name=${encodedClassName}`, '_blank')
       } else {
         // Class文件：跳转到Class双窗格页面
         const className = encodeURIComponent(itemName.value)
         const encodedClassName = encodeURIComponent(classFullName)
-        window.open(`/diff/class-file/${className}/${fromVersion.value}/${toVersion.value}?file=${encodedClassName}`, '_blank')
+        window.open(`/diff/class-file/${className}/${fromVersion.value}/${toVersion.value}?class_full_name=${encodedClassName}`, '_blank')
       }
     }
   }
