@@ -13,6 +13,7 @@ import os
 from datetime import datetime
 import hashlib
 import difflib
+import math
 
 # Database configuration
 DATABASE_URL = os.getenv("DATABASE_URL", "mysql+pymysql://jal:271828@172.30.80.95:32306/jal")
@@ -871,6 +872,307 @@ async def get_java_sources(
         "last_class_name": result[-1]["class_full_name"] if result else None,
         "limit": limit
     }
+
+# Export APIs
+@app.get("/api/services/{service_id}/export")
+async def export_service_details(service_id: int, db: Session = Depends(get_db)):
+    """Export service details as Markdown"""
+    # Get service details
+    service = db.query(Service).filter(Service.id == service_id).first()
+    if not service:
+        raise HTTPException(status_code=404, detail="Service not found")
+    
+    # Get JAR files
+    jar_files = db.query(JarFile).filter(
+        JarFile.service_id == service_id,
+        JarFile.is_third_party == False
+    ).all()
+    
+    # Get Class files
+    class_files = db.query(ClassFile).filter(
+        ClassFile.service_id == service_id
+    ).all()
+    
+    # Generate Markdown content
+    markdown_content = generate_service_export_markdown(service, jar_files, class_files, db)
+    
+    return {
+        "filename": f"service_{service.service_name}_{service_id}_export.md",
+        "content": markdown_content,
+        "content_type": "text/markdown"
+    }
+
+@app.get("/api/jars/{jar_name}/export")
+async def export_jar_history(jar_name: str, db: Session = Depends(get_db)):
+    """Export JAR version history as Markdown"""
+    # Get all versions of the JAR
+    versions = db.query(JarFile).filter(
+        JarFile.jar_name == jar_name,
+        JarFile.is_third_party == False
+    ).order_by(JarFile.version_no).all()
+    
+    if not versions:
+        raise HTTPException(status_code=404, detail="JAR not found")
+    
+    # Generate Markdown content
+    markdown_content = generate_jar_export_markdown(jar_name, versions, db)
+    
+    return {
+        "filename": f"jar_{jar_name.replace('.jar', '')}_history_export.md",
+        "content": markdown_content,
+        "content_type": "text/markdown"
+    }
+
+def generate_service_export_markdown(service, jar_files, class_files, db):
+    """Generate Markdown content for service export"""
+    content = []
+    
+    # Service header
+    content.append(f"# Service: {service.service_name}")
+    content.append("")
+    content.append(f"**Service ID:** {service.id}")
+    content.append(f"**IP Address:** {service.ip_address}")
+    content.append(f"**Port:** {service.port}")
+    content.append(f"**Description:** {service.description or 'N/A'}")
+    content.append(f"**Created At:** {service.created_at}")
+    content.append("")
+    
+    # JAR Files section
+    content.append("## JAR Files")
+    content.append("")
+    content.append(f"Total JAR files: {len(jar_files)}")
+    content.append("")
+    
+    for jar in jar_files:
+        content.append(f"### {jar.jar_name}")
+        content.append("")
+        content.append(f"- **Version:** {jar.version_no}")
+        content.append(f"- **File Size:** {format_file_size(jar.file_size)}")
+        content.append(f"- **Last Modified:** {jar.last_modified}")
+        
+        # Check if not latest version
+        latest_version = db.query(func.max(JarFile.version_no)).filter(
+            JarFile.jar_name == jar.jar_name,
+            JarFile.is_third_party == False
+        ).scalar()
+        
+        if jar.version_no != latest_version:
+            content.append(f"- **Status:** ⚠️ Not Latest (Latest: {latest_version})")
+            content.append("")
+            content.append("#### Differences from Latest Version")
+            content.append("")
+            
+            # Get diff between current and latest version
+            try:
+                diff_content = get_jar_diff_content(jar.jar_name, jar.version_no, latest_version, db)
+                if diff_content:
+                    content.append("```diff")
+                    content.append(diff_content)
+                    content.append("```")
+                else:
+                    content.append("*No differences found*")
+            except Exception as e:
+                content.append(f"*Error generating diff: {str(e)}*")
+        else:
+            content.append("- **Status:** ✅ Latest Version")
+        
+        content.append("")
+    
+    # Class Files section
+    content.append("## Class Files")
+    content.append("")
+    content.append(f"Total Class files: {len(class_files)}")
+    content.append("")
+    
+    for class_file in class_files:
+        content.append(f"### {class_file.class_full_name}")
+        content.append("")
+        content.append(f"- **Version:** {class_file.version_no}")
+        content.append(f"- **File Size:** {format_file_size(class_file.file_size)}")
+        content.append(f"- **Last Modified:** {class_file.last_modified}")
+        
+        # Check if not latest version
+        latest_version = db.query(func.max(ClassFile.version_no)).filter(
+            ClassFile.class_full_name == class_file.class_full_name
+        ).scalar()
+        
+        if class_file.version_no != latest_version:
+            content.append(f"- **Status:** ⚠️ Not Latest (Latest: {latest_version})")
+            content.append("")
+            content.append("#### Differences from Latest Version")
+            content.append("")
+            
+            # Get diff between current and latest version
+            try:
+                diff_content = get_class_diff_content(class_file.class_full_name, class_file.version_no, latest_version, db)
+                if diff_content:
+                    content.append("```diff")
+                    content.append(diff_content)
+                    content.append("```")
+                else:
+                    content.append("*No differences found*")
+            except Exception as e:
+                content.append(f"*Error generating diff: {str(e)}*")
+        else:
+            content.append("- **Status:** ✅ Latest Version")
+        
+        content.append("")
+    
+    return "\n".join(content)
+
+def generate_jar_export_markdown(jar_name, versions, db):
+    """Generate Markdown content for JAR export"""
+    content = []
+    
+    # JAR header
+    content.append(f"# JAR: {jar_name}")
+    content.append("")
+    content.append(f"Total versions: {len(versions)}")
+    content.append("")
+    
+    # Version history
+    content.append("## Version History")
+    content.append("")
+    
+    for i, version in enumerate(versions):
+        content.append(f"### Version {version.version_no}")
+        content.append("")
+        content.append(f"- **File Size:** {format_file_size(version.file_size)}")
+        content.append(f"- **Last Modified:** {version.last_modified}")
+        
+        # Get services using this version
+        services = db.query(Service).join(JarFile).filter(
+            JarFile.jar_name == jar_name,
+            JarFile.version_no == version.version_no,
+            JarFile.is_third_party == False
+        ).all()
+        
+        content.append(f"- **Used by Services:** {len(services)}")
+        if services:
+            service_names = [s.service_name for s in services]
+            content.append(f"  - {', '.join(service_names)}")
+        
+        content.append("")
+        
+        # Show differences from previous version
+        if i > 0:
+            prev_version = versions[i-1]
+            content.append(f"#### Changes from Version {prev_version.version_no}")
+            content.append("")
+            
+            try:
+                diff_content = get_jar_diff_content(jar_name, prev_version.version_no, version.version_no, db)
+                if diff_content:
+                    content.append("```diff")
+                    content.append(diff_content)
+                    content.append("```")
+                else:
+                    content.append("*No differences found*")
+            except Exception as e:
+                content.append(f"*Error generating diff: {str(e)}*")
+            
+            content.append("")
+    
+    return "\n".join(content)
+
+def get_jar_diff_content(jar_name, from_version, to_version, db):
+    """Get diff content between two JAR versions"""
+    try:
+        # Get source files for both versions
+        from_sources = db.query(JavaSourceFileVersion).join(JavaSourceInJarFile).join(JarFile).filter(
+            JarFile.jar_name == jar_name,
+            JarFile.version_no == from_version,
+            JarFile.is_third_party == False
+        ).all()
+        
+        to_sources = db.query(JavaSourceFileVersion).join(JavaSourceInJarFile).join(JarFile).filter(
+            JarFile.jar_name == jar_name,
+            JarFile.version_no == to_version,
+            JarFile.is_third_party == False
+        ).all()
+        
+        # Create file mapping
+        from_files = {sf.file_path: sf.file_content for sf in from_sources}
+        to_files = {sf.file_path: sf.file_content for sf in to_sources}
+        
+        # Generate unified diff
+        diff_lines = []
+        all_files = set(from_files.keys()) | set(to_files.keys())
+        
+        for file_path in sorted(all_files):
+            from_content = from_files.get(file_path, "")
+            to_content = to_files.get(file_path, "")
+            
+            if from_content != to_content:
+                diff_lines.append(f"--- {file_path}")
+                diff_lines.append(f"+++ {file_path}")
+                
+                # Generate diff using difflib
+                from_lines = from_content.splitlines(keepends=True) if from_content else []
+                to_lines = to_content.splitlines(keepends=True) if to_content else []
+                
+                diff = difflib.unified_diff(
+                    from_lines,
+                    to_lines,
+                    fromfile=f"v{from_version}",
+                    tofile=f"v{to_version}",
+                    lineterm=""
+                )
+                
+                diff_lines.extend(list(diff)[2:])  # Skip file headers
+                diff_lines.append("")
+        
+        return "\n".join(diff_lines)
+    except Exception as e:
+        return f"Error generating diff: {str(e)}"
+
+def get_class_diff_content(class_name, from_version, to_version, db):
+    """Get diff content between two class versions"""
+    try:
+        # Get source content for both versions
+        from_source = db.query(JavaSourceFileVersion).join(ClassFile).filter(
+            ClassFile.class_full_name == class_name,
+            ClassFile.version_no == from_version
+        ).first()
+        
+        to_source = db.query(JavaSourceFileVersion).join(ClassFile).filter(
+            ClassFile.class_full_name == class_name,
+            ClassFile.version_no == to_version
+        ).first()
+        
+        if not from_source or not to_source:
+            return "Source not found"
+        
+        from_content = from_source.file_content or ""
+        to_content = to_source.file_content or ""
+        
+        if from_content == to_content:
+            return "No differences found"
+        
+        # Generate unified diff
+        from_lines = from_content.splitlines(keepends=True)
+        to_lines = to_content.splitlines(keepends=True)
+        
+        diff = difflib.unified_diff(
+            from_lines,
+            to_lines,
+            fromfile=f"v{from_version}",
+            tofile=f"v{to_version}",
+            lineterm=""
+        )
+        
+        return "\n".join(list(diff)[2:])  # Skip file headers
+    except Exception as e:
+        return f"Error generating diff: {str(e)}"
+
+def format_file_size(bytes):
+    """Format file size in human readable format"""
+    if not bytes:
+        return "0 B"
+    k = 1024
+    sizes = ['B', 'KB', 'MB', 'GB']
+    i = int(math.floor(math.log(bytes) / math.log(k)))
+    return f"{round(bytes / math.pow(k, i), 2)} {sizes[i]}"
 
 @app.get("/api/java-sources/{class_full_name}/details", response_model=Dict[str, Any])
 async def get_java_source_details(
