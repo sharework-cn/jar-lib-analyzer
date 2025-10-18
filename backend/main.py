@@ -906,14 +906,18 @@ async def get_service_critical_differences(service_id: int, db: Session = Depend
         
         if jar.version_no != latest_version:
             try:
-                diff_content = get_jar_diff_content(jar.jar_name, jar.version_no, latest_version, db)
-                # Extract critical changes from diff content (simplified for API)
+                # Directly analyze critical changes instead of checking diff content
+                critical_changes = analyze_jar_critical_changes(jar.jar_name, jar.version_no, latest_version, db)
+                has_critical_changes = len(critical_changes) > 0
+                
                 all_critical_changes.append({
                     'type': 'jar_differences',
                     'jar_name': jar.jar_name,
                     'current_version': jar.version_no,
                     'latest_version': latest_version,
-                    'has_critical_changes': 'Critical Compatibility Issues' in diff_content
+                    'has_critical_changes': has_critical_changes,
+                    'severity': 'high' if has_critical_changes else 'low',
+                    'critical_changes': critical_changes
                 })
             except Exception as e:
                 all_critical_changes.append({
@@ -921,7 +925,10 @@ async def get_service_critical_differences(service_id: int, db: Session = Depend
                     'jar_name': jar.jar_name,
                     'current_version': jar.version_no,
                     'latest_version': latest_version,
-                    'error': str(e)
+                    'error': str(e),
+                    'severity': 'medium',
+                    'has_critical_changes': False,
+                    'critical_changes': []
                 })
     
     # Analyze Class differences
@@ -932,13 +939,18 @@ async def get_service_critical_differences(service_id: int, db: Session = Depend
         
         if class_file.version_no != latest_version:
             try:
-                diff_content = get_class_diff_content(class_file.class_full_name, class_file.version_no, latest_version, db)
+                # Directly analyze critical changes instead of checking diff content
+                critical_changes = analyze_class_critical_changes(class_file.class_full_name, class_file.version_no, latest_version, db)
+                has_critical_changes = len(critical_changes) > 0
+                
                 all_critical_changes.append({
                     'type': 'class_differences',
                     'class_name': class_file.class_full_name,
                     'current_version': class_file.version_no,
                     'latest_version': latest_version,
-                    'has_critical_changes': 'Critical Compatibility Issues' in diff_content
+                    'has_critical_changes': has_critical_changes,
+                    'severity': 'high' if has_critical_changes else 'low',
+                    'critical_changes': critical_changes
                 })
             except Exception as e:
                 all_critical_changes.append({
@@ -946,7 +958,10 @@ async def get_service_critical_differences(service_id: int, db: Session = Depend
                     'class_name': class_file.class_full_name,
                     'current_version': class_file.version_no,
                     'latest_version': latest_version,
-                    'error': str(e)
+                    'error': str(e),
+                    'severity': 'medium',
+                    'has_critical_changes': False,
+                    'critical_changes': []
                 })
     
     return {
@@ -954,7 +969,7 @@ async def get_service_critical_differences(service_id: int, db: Session = Depend
         "service_name": service.service_name,
         "critical_changes": all_critical_changes,
         "total_items": len(jar_files) + len(class_files),
-        "items_with_differences": len(all_critical_changes)
+        "items_with_differences": len([c for c in all_critical_changes if c.get('has_critical_changes', False)])
     }
 
 @app.get("/api/jars/{jar_name}/critical-differences")
@@ -981,8 +996,9 @@ async def get_jar_critical_differences(jar_name: str, db: Session = Depends(get_
         current_version = versions_query[i]
         
         try:
-            diff_content = get_jar_diff_content(jar_name, prev_version.version_no, current_version.version_no, db)
-            has_critical_changes = 'Critical Compatibility Issues' in diff_content
+            # Directly analyze critical changes instead of checking diff content
+            critical_changes = analyze_jar_critical_changes(jar_name, prev_version.version_no, current_version.version_no, db)
+            has_critical_changes = len(critical_changes) > 0
             
             all_critical_changes.append({
                 'type': 'jar_differences',
@@ -990,7 +1006,8 @@ async def get_jar_critical_differences(jar_name: str, db: Session = Depends(get_
                 'current_version': prev_version.version_no,
                 'latest_version': current_version.version_no,
                 'has_critical_changes': has_critical_changes,
-                'severity': 'high' if has_critical_changes else 'low'
+                'severity': 'high' if has_critical_changes else 'low',
+                'critical_changes': critical_changes
             })
         except Exception as e:
             all_critical_changes.append({
@@ -999,14 +1016,16 @@ async def get_jar_critical_differences(jar_name: str, db: Session = Depends(get_
                 'current_version': prev_version.version_no,
                 'latest_version': current_version.version_no,
                 'error': str(e),
-                'severity': 'medium'
+                'severity': 'medium',
+                'has_critical_changes': False,
+                'critical_changes': []
             })
     
     return {
         "jar_name": jar_name,
         "critical_changes": all_critical_changes,
         "total_items": len(versions_query),
-        "items_with_differences": len(all_critical_changes)
+        "items_with_differences": len([c for c in all_critical_changes if c.get('has_critical_changes', False)])
     }
 
 # Export APIs
