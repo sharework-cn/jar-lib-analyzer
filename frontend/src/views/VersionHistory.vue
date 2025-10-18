@@ -44,14 +44,7 @@
                 <el-icon><Switch /></el-icon>
                 View Differences
               </el-button>
-              <el-button 
-                v-if="index > 0" 
-                size="small"
-                @click="goToUnifiedDiff(versions[index-1].version_no, version.version_no)"
-              >
-                <el-icon><Switch /></el-icon>
-                GitHub Style (Single Pane)
-              </el-button>
+
               <el-button size="small" @click="viewSources(version.version_no)">
                 <el-icon><View /></el-icon>
                 View Sources

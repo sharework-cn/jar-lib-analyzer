@@ -39,7 +39,8 @@ class VersionManager:
         db = self.get_db_session()
         
         try:
-            # Get all non-third-party JAR files
+            # Reset JAR version fields first
+            logger.info("Resetting JAR version fields...")
             query = db.query(JarFile).filter(JarFile.is_third_party == False)
             if service_name:
                 service = db.query(Service).filter(Service.service_name == service_name).first()
@@ -48,6 +49,13 @@ class VersionManager:
                     return False
                 query = query.filter(JarFile.service_id == service.id)
             
+            reset_count = query.update({
+                'version_no': None,
+                'last_version_no': None
+            })
+            logger.info(f"Reset version fields for {reset_count} JAR files")
+            
+            # Get all non-third-party JAR files
             jar_files = query.all()
             logger.info(f"Found {len(jar_files)} non-third-party JAR files")
             
@@ -107,7 +115,8 @@ class VersionManager:
         db = self.get_db_session()
         
         try:
-            # Get all Class files
+            # Reset Class version fields first
+            logger.info("Resetting Class version fields...")
             query = db.query(ClassFile)
             if service_name:
                 service = db.query(Service).filter(Service.service_name == service_name).first()
@@ -116,6 +125,13 @@ class VersionManager:
                     return False
                 query = query.filter(ClassFile.service_id == service.id)
             
+            reset_count = query.update({
+                'version_no': None,
+                'last_version_no': None
+            })
+            logger.info(f"Reset version fields for {reset_count} Class files")
+            
+            # Get all Class files
             class_files = query.all()
             logger.info(f"Found {len(class_files)} Class files")
             
@@ -265,6 +281,9 @@ class VersionManager:
             jar_file.version_no = version_no
             version_groups[version_no].append(jar_file)
         
+        # Flush changes to database to ensure version_no is saved
+        db.flush()
+        
         # For each version group, merge source mappings
         for version_no, version_jars in version_groups.items():
             if len(version_jars) <= 1:
@@ -316,6 +335,9 @@ class VersionManager:
         for class_file, version_no in zip(classes, versions):
             class_file.version_no = version_no
             version_groups[version_no].append(class_file)
+        
+        # Flush changes to database to ensure version_no is saved
+        db.flush()
         
         # For each version group, merge source mappings
         for version_no, version_classes in version_groups.items():
