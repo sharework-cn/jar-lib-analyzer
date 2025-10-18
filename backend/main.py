@@ -989,14 +989,28 @@ async def export_service_details(service_id: int, db: Session = Depends(get_db))
 @app.get("/api/jars/{jar_name}/export")
 async def export_jar_history(jar_name: str, db: Session = Depends(get_db)):
     """Export JAR version history as Markdown"""
-    # Get all versions of the JAR
-    versions = db.query(JarFile).filter(
+    # Get unique versions of the JAR (distinct version_no)
+    versions_query = db.query(
+        JarFile.version_no,
+        func.min(JarFile.file_size).label('file_size'),
+        func.min(JarFile.last_modified).label('last_modified')
+    ).filter(
         JarFile.jar_name == jar_name,
         JarFile.is_third_party == False
-    ).order_by(JarFile.version_no).all()
+    ).group_by(JarFile.version_no).order_by(JarFile.version_no).all()
     
-    if not versions:
+    if not versions_query:
         raise HTTPException(status_code=404, detail="JAR not found")
+    
+    # Convert to objects with version_no, file_size, last_modified attributes
+    versions = []
+    for v in versions_query:
+        version_obj = type('Version', (), {
+            'version_no': v.version_no,
+            'file_size': v.file_size,
+            'last_modified': v.last_modified
+        })()
+        versions.append(version_obj)
     
     # Generate Markdown content
     markdown_content = generate_jar_export_markdown(jar_name, versions, db)
@@ -1222,6 +1236,8 @@ def generate_jar_export_markdown(jar_name, versions, db):
     content.append("## Version History")
     content.append("")
     
+    all_critical_changes = []  # Collect all critical changes
+    
     for i, version in enumerate(versions):
         content.append(f"### Version {version.version_no}")
         content.append("")
@@ -1252,12 +1268,79 @@ def generate_jar_export_markdown(jar_name, versions, db):
                 diff_content = get_jar_diff_content(jar_name, prev_version.version_no, version.version_no, db)
                 if diff_content and diff_content != "No differences found between versions":
                     content.append(diff_content)
+                    
+                    # Analyze critical changes for this version diff
+                    version_critical_changes = analyze_jar_critical_changes(jar_name, prev_version.version_no, version.version_no, db)
+                    all_critical_changes.extend(version_critical_changes)
                 else:
                     content.append("*No differences found*")
             except Exception as e:
                 content.append(f"*Error generating diff: {str(e)}*")
             
             content.append("")
+    
+    # Critical Changes Summary section (at the end)
+    if all_critical_changes:
+        content.append("## ⚠️ Critical Compatibility Issues Summary")
+        content.append("")
+        content.append("The following changes may cause compatibility issues during incremental deployment:")
+        content.append("")
+        
+        # Group changes by type and remove duplicates
+        processed_changes = []
+        removed_classes = set()
+        
+        for change in all_critical_changes:
+            # Extract class name from location for class removal tracking
+            if 'JAR:' in change['location'] and '→ Class:' in change['location']:
+                class_name = change['location'].split('→ Class: ')[1].split(' (')[0]
+                class_short_name = class_name.split('.')[-1]
+                
+                if change['type'] == 'removed_class':
+                    removed_classes.add(class_short_name)
+                    processed_changes.append(change)
+                elif change['type'] in ['removed_method', 'modified_method_signature']:
+                    # Only add method changes if the class wasn't removed
+                    if class_short_name not in removed_classes:
+                        processed_changes.append(change)
+            else:
+                # Direct class changes
+                if change['type'] == 'removed_class':
+                    class_name = change['location'].split('Class: ')[1].split(' (')[0]
+                    class_short_name = class_name.split('.')[-1]
+                    removed_classes.add(class_short_name)
+                processed_changes.append(change)
+        
+        for change in processed_changes:
+            severity_icon = "🔴" if change['severity'] == 'high' else "🟡"
+            
+            # Generate simplified title
+            if change['type'] == 'removed_class':
+                class_name = change['description'].split("'")[1]
+                class_short_name = class_name.split('.')[-1]
+                title = f"Class Removed: {class_short_name}"
+            elif change['type'] == 'removed_method':
+                method_name = change['description'].split("'")[1].split('(')[0]
+                title = f"Method Removed: {method_name}"
+            elif change['type'] == 'modified_method_signature':
+                method_name = change['description'].split("'")[1]
+                title = f"Method Modified: {method_name}"
+            else:
+                title = change['type'].replace('_', ' ').title()
+            
+            content.append(f"### {severity_icon} {title}")
+            content.append("")
+            content.append(f"**Location:** {change['location']}")
+            content.append("")
+            content.append(f"**Issue:** {change['description']}")
+            content.append("")
+            
+            if 'details' in change:
+                content.append("**Details:**")
+                content.append("```diff")
+                content.append(change['details'])
+                content.append("```")
+                content.append("")
     
     return "\n".join(content)
 
