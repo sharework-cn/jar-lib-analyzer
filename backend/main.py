@@ -1032,6 +1032,8 @@ def generate_service_export_markdown(service, jar_files, class_files, db):
     content.append("|----------|---------|--------|-----------|---------------|")
     
     jar_differences = []
+    all_critical_changes = []  # Collect all critical changes
+    
     for jar in jar_files:
         # Check if not latest version
         latest_version = db.query(func.max(JarFile.version_no)).filter(
@@ -1109,6 +1111,10 @@ def generate_service_export_markdown(service, jar_files, class_files, db):
                 diff_content = get_jar_diff_content(diff['jar_name'], diff['current_version'], diff['latest_version'], db)
                 if diff_content and diff_content != "No differences found between versions":
                     content.append(diff_content)
+                    
+                    # Analyze critical changes for this JAR
+                    jar_critical_changes = analyze_jar_critical_changes(diff['jar_name'], diff['current_version'], diff['latest_version'], db)
+                    all_critical_changes.extend(jar_critical_changes)
                 else:
                     content.append("*No differences found*")
             except Exception as e:
@@ -1126,12 +1132,79 @@ def generate_service_export_markdown(service, jar_files, class_files, db):
                 diff_content = get_class_diff_content(diff['class_name'], diff['current_version'], diff['latest_version'], db)
                 if diff_content and diff_content != "No differences found between versions":
                     content.append(diff_content)
+                    
+                    # Analyze critical changes for this Class
+                    class_critical_changes = analyze_class_critical_changes(diff['class_name'], diff['current_version'], diff['latest_version'], db)
+                    all_critical_changes.extend(class_critical_changes)
                 else:
                     content.append("*No differences found*")
             except Exception as e:
                 content.append(f"*Error generating diff: {str(e)}*")
             
             content.append("")
+    
+    # Critical Changes Summary section (at the end)
+    if all_critical_changes:
+        content.append("## ⚠️ Critical Compatibility Issues Summary")
+        content.append("")
+        content.append("The following changes may cause compatibility issues during incremental deployment:")
+        content.append("")
+        
+        # Group changes by type and remove duplicates
+        processed_changes = []
+        removed_classes = set()
+        
+        for change in all_critical_changes:
+            # Extract class name from location for class removal tracking
+            if 'JAR:' in change['location'] and '→ Class:' in change['location']:
+                class_name = change['location'].split('→ Class: ')[1].split(' (')[0]
+                class_short_name = class_name.split('.')[-1]
+                
+                if change['type'] == 'removed_class':
+                    removed_classes.add(class_short_name)
+                    processed_changes.append(change)
+                elif change['type'] in ['removed_method', 'modified_method_signature']:
+                    # Only add method changes if the class wasn't removed
+                    if class_short_name not in removed_classes:
+                        processed_changes.append(change)
+            else:
+                # Direct class changes
+                if change['type'] == 'removed_class':
+                    class_name = change['location'].split('Class: ')[1].split(' (')[0]
+                    class_short_name = class_name.split('.')[-1]
+                    removed_classes.add(class_short_name)
+                processed_changes.append(change)
+        
+        for change in processed_changes:
+            severity_icon = "🔴" if change['severity'] == 'high' else "🟡"
+            
+            # Generate simplified title
+            if change['type'] == 'removed_class':
+                class_name = change['description'].split("'")[1]
+                class_short_name = class_name.split('.')[-1]
+                title = f"Class Removed: {class_short_name}"
+            elif change['type'] == 'removed_method':
+                method_name = change['description'].split("'")[1].split('(')[0]
+                title = f"Method Removed: {method_name}"
+            elif change['type'] == 'modified_method_signature':
+                method_name = change['description'].split("'")[1]
+                title = f"Method Modified: {method_name}"
+            else:
+                title = change['type'].replace('_', ' ').title()
+            
+            content.append(f"### {severity_icon} {title}")
+            content.append("")
+            content.append(f"**Location:** {change['location']}")
+            content.append("")
+            content.append(f"**Issue:** {change['description']}")
+            content.append("")
+            
+            if 'details' in change:
+                content.append("**Details:**")
+                content.append("```diff")
+                content.append(change['details'])
+                content.append("```")
+                content.append("")
     
     return "\n".join(content)
 
@@ -1187,6 +1260,123 @@ def generate_jar_export_markdown(jar_name, versions, db):
             content.append("")
     
     return "\n".join(content)
+
+def analyze_jar_critical_changes(jar_name, from_version, to_version, db):
+    """Analyze critical changes for a JAR between two versions"""
+    try:
+        # Get source files for both versions
+        from_sources = db.query(JavaSourceFileVersion, JavaSourceFile.class_full_name).join(
+            JavaSourceFile, JavaSourceFileVersion.java_source_file_id == JavaSourceFile.id
+        ).join(JavaSourceInJarFile).join(JarFile).filter(
+            JarFile.jar_name == jar_name,
+            JarFile.version_no == from_version,
+            JarFile.is_third_party == False
+        ).all()
+        
+        to_sources = db.query(JavaSourceFileVersion, JavaSourceFile.class_full_name).join(
+            JavaSourceFile, JavaSourceFileVersion.java_source_file_id == JavaSourceFile.id
+        ).join(JavaSourceInJarFile).join(JarFile).filter(
+            JarFile.jar_name == jar_name,
+            JarFile.version_no == to_version,
+            JarFile.is_third_party == False
+        ).all()
+        
+        # Create file mapping
+        from_files = {class_name: sf.file_content for sf, class_name in from_sources}
+        to_files = {class_name: sf.file_content for sf, class_name in to_sources}
+        
+        all_critical_changes = []
+        
+        # Analyze each class
+        all_classes = set(from_files.keys()) | set(to_files.keys())
+        for class_name in all_classes:
+            from_content = from_files.get(class_name, "")
+            to_content = to_files.get(class_name, "")
+            
+            if from_content != to_content:
+                context_info = f"JAR: {jar_name} → Class: {class_name} (v{from_version} → v{to_version})"
+                critical_changes = analyze_critical_differences(from_content, to_content, context_info)
+                all_critical_changes.extend(critical_changes)
+        
+        return all_critical_changes
+    except Exception as e:
+        return []
+
+def analyze_class_critical_changes(class_name, from_version, to_version, db):
+    """Analyze critical changes for a Class between two versions"""
+    try:
+        # Get source content for both versions
+        from_source = db.query(JavaSourceFileVersion).join(ClassFile).filter(
+            ClassFile.class_full_name == class_name,
+            ClassFile.version_no == from_version
+        ).first()
+        
+        to_source = db.query(JavaSourceFileVersion).join(ClassFile).filter(
+            ClassFile.class_full_name == class_name,
+            ClassFile.version_no == to_version
+        ).first()
+        
+        if not from_source or not to_source:
+            return []
+        
+        from_content = from_source.file_content or ""
+        to_content = to_source.file_content or ""
+        
+        context_info = f"Class: {class_name} (v{from_version} → v{to_version})"
+        return analyze_critical_differences(from_content, to_content, context_info)
+    except Exception as e:
+        return []
+
+def extract_critical_changes_from_diff(diff_content, location_name, location_type):
+    """Extract critical changes from diff content with proper context"""
+    critical_changes = []
+    
+    if "Critical Compatibility Issues" not in diff_content:
+        return critical_changes
+    
+    # Parse the diff content to extract critical changes
+    lines = diff_content.split('\n')
+    in_critical_section = False
+    current_change = None
+    
+    for line in lines:
+        if "## ⚠️ Critical Compatibility Issues" in line:
+            in_critical_section = True
+            continue
+        
+        if in_critical_section:
+            if line.startswith("### 🔴") or line.startswith("### 🟡"):
+                # Save previous change if exists
+                if current_change:
+                    critical_changes.append(current_change)
+                
+                # Start new change
+                severity = "high" if "🔴" in line else "medium"
+                change_type = line.split("🔴")[-1].split("🟡")[-1].strip()
+                current_change = {
+                    'type': change_type.lower().replace(' ', '_'),
+                    'severity': severity,
+                    'location': f"{location_type}: {location_name}",
+                    'description': '',
+                    'details': ''
+                }
+            elif current_change and line.startswith("**Issue:**"):
+                current_change['description'] = line.replace("**Issue:**", "").strip()
+            elif current_change and line.startswith("```diff"):
+                # Start collecting details
+                current_change['details'] = ""
+            elif current_change and current_change['details'] != "" and not line.startswith("```"):
+                # Collect details
+                current_change['details'] += line + "\n"
+            elif current_change and line.startswith("```") and current_change['details'] != "":
+                # End of details
+                current_change['details'] = current_change['details'].strip()
+    
+    # Add the last change
+    if current_change:
+        critical_changes.append(current_change)
+    
+    return critical_changes
 
 def get_jar_diff_content(jar_name, from_version, to_version, db):
     """Get diff content between two JAR versions - only show files with differences"""
@@ -1263,21 +1453,9 @@ def get_jar_diff_content(jar_name, from_version, to_version, db):
         if not files_with_differences:
             return "No differences found between versions"
         
-        # Analyze critical differences
-        all_critical_changes = []
-        for class_name in files_with_differences:
-            from_content = from_files.get(class_name, "")
-            to_content = to_files.get(class_name, "")
-            critical_changes = analyze_critical_differences(from_content, to_content)
-            all_critical_changes.extend(critical_changes)
-        
         # Add summary
         summary = f"**Classes with differences:** {len(files_with_differences)}\n"
         summary += f"**Changed classes:** {', '.join(files_with_differences)}\n\n"
-        
-        # Add critical changes if any
-        if all_critical_changes:
-            summary += format_critical_changes(all_critical_changes) + "\n\n"
         
         return summary + "\n".join(diff_lines)
     except Exception as e:
@@ -1330,18 +1508,10 @@ def get_class_diff_content(class_name, from_version, to_version, db):
                 # Remove trailing newlines to prevent double spacing
                 filtered_content.append(line.rstrip('\n'))
         
-        # Analyze critical differences
-        critical_changes = analyze_critical_differences(from_content, to_content)
-        
         # Format as markdown with HTML anchor
         class_anchor_id = str(uuid.uuid4()).replace('-', '')[:16]
         result = f'<a id="{class_anchor_id}"/>\n'
         result += f"#### {class_name}\n\n"
-        
-        # Add critical changes if any
-        if critical_changes:
-            result += format_critical_changes(critical_changes) + "\n\n"
-        
         result += "```diff\n"
         result += "\n".join(filtered_content)
         result += "\n```"
@@ -1350,7 +1520,7 @@ def get_class_diff_content(class_name, from_version, to_version, db):
     except Exception as e:
         return f"Error generating diff: {str(e)}"
 
-def analyze_critical_differences(from_content, to_content):
+def analyze_critical_differences(from_content, to_content, context_info=None):
     """
     Analyze critical differences that may cause compatibility issues:
     - Removed classes
@@ -1396,20 +1566,26 @@ def analyze_critical_differences(from_content, to_content):
     # Check for removed classes
     removed_classes = from_defs['classes'] - to_defs['classes']
     for class_name in removed_classes:
-        critical_changes.append({
+        change = {
             'type': 'removed_class',
             'description': f"Class '{class_name}' was removed",
             'severity': 'high'
-        })
+        }
+        if context_info:
+            change['location'] = context_info
+        critical_changes.append(change)
     
     # Check for removed methods
     removed_methods = from_defs['methods'] - to_defs['methods']
     for method_sig in removed_methods:
-        critical_changes.append({
+        change = {
             'type': 'removed_method',
             'description': f"Method '{method_sig}' was removed",
             'severity': 'high'
-        })
+        }
+        if context_info:
+            change['location'] = context_info
+        critical_changes.append(change)
     
     # Check for modified method signatures using diff
     from_lines = from_content.splitlines()
@@ -1429,12 +1605,15 @@ def analyze_critical_differences(from_content, to_content):
                     if next_line.startswith('+') and not next_line.startswith('+++'):
                         next_method_match = re.match(r'^\+\s*(?:public|private|protected)\s*(?:static\s+)?(?:final\s+)?(?:synchronized\s+)?(?:abstract\s+)?(?:native\s+)?(?:strictfp\s+)?(?:<.*?>\s+)?(?:void|\w+(?:<.*?>)?)\s+(\w+)\s*\(', next_line[1:].strip())
                         if next_method_match and next_method_match.group(1) == method_name:
-                            critical_changes.append({
+                            change = {
                                 'type': 'modified_method_signature',
                                 'description': f"Method '{method_name}' signature was modified",
                                 'severity': 'high',
                                 'details': f"From: {line[1:].strip()}\nTo: {next_line[1:].strip()}"
-                            })
+                            }
+                            if context_info:
+                                change['location'] = context_info
+                            critical_changes.append(change)
                             break
     
     return critical_changes
