@@ -24,6 +24,12 @@
           </template>
         </el-table-column>
         
+        <el-table-column prop="service_count" label="Services" width="100" align="center">
+          <template #default="{ row }">
+            <el-tag type="success">{{ row.service_count }}</el-tag>
+          </template>
+        </el-table-column>
+        
         <el-table-column prop="version_count" label="Versions" width="100" align="center">
           <template #default="{ row }">
             <el-tag type="info">{{ row.version_count }}</el-tag>

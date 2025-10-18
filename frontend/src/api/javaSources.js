@@ -25,3 +25,23 @@ export const getJavaSourceDetails = async (classFullName) => {
     throw error
   }
 }
+
+export const getJavaSourceVersions = async (classFullName) => {
+  try {
+    const response = await axios.get(`${API_BASE_URL}/api/java-sources/${encodeURIComponent(classFullName)}/versions`)
+    return response.data
+  } catch (error) {
+    console.error('Failed to fetch Java Source versions:', error)
+    throw error
+  }
+}
+
+export const getJavaSourceDiff = async (classFullName, fromVersion, toVersion) => {
+  try {
+    const response = await axios.get(`${API_BASE_URL}/api/java-sources/${encodeURIComponent(classFullName)}/diff/${fromVersion}/${toVersion}`)
+    return response.data
+  } catch (error) {
+    console.error('Failed to fetch Java Source diff:', error)
+    throw error
+  }
+}

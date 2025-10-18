@@ -16,6 +16,16 @@
           Last updated: {{ formatDate(serviceData?.last_updated) }}
         </p>
       </div>
+      <div class="header-actions">
+        <el-button 
+          type="success" 
+          :icon="Download" 
+          @click="handleExportServiceDetails"
+          :loading="exportLoading"
+        >
+          Export as Markdown
+        </el-button>
+      </div>
     </div>
 
     <!-- Loading State -->
@@ -139,9 +149,10 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, Clock, Box, Document } from '@element-plus/icons-vue'
+import { ArrowLeft, Clock, Box, Document, Download } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { getServiceDetail } from '@/api/services'
+import { exportServiceDetails, downloadFile } from '@/api/export'
 
 const route = useRoute()
 const router = useRouter()
@@ -149,6 +160,7 @@ const router = useRouter()
 // Reactive data
 const loading = ref(true)
 const serviceData = ref(null)
+const exportLoading = ref(false)
 
 // Computed properties
 const serviceName = computed(() => {
@@ -227,6 +239,22 @@ const viewVersionDiff = (row, type) => {
   }
 }
 
+const handleExportServiceDetails = async () => {
+  exportLoading.value = true
+  try {
+    const serviceId = route.params.id
+    const exportData = await exportServiceDetails(serviceId)
+    
+    downloadFile(exportData.content, exportData.filename, exportData.content_type)
+    ElMessage.success('Service details exported successfully')
+  } catch (error) {
+    console.error('Failed to export service details:', error)
+    ElMessage.error('Failed to export service details')
+  } finally {
+    exportLoading.value = false
+  }
+}
+
 // Lifecycle
 onMounted(() => {
   loadServiceDetail()
@@ -255,6 +283,10 @@ onMounted(() => {
 
 .header-info {
   flex: 1;
+}
+
+.header-actions {
+  flex-shrink: 0;
 }
 
 .header-info h2 {

@@ -1,8 +1,22 @@
 <template>
   <div class="version-history">
     <div class="history-header">
-      <h2>{{ itemTitle }}</h2>
-      <p class="item-subtitle">{{ itemType === 'jar' ? 'JAR File' : 'Class File' }} Version History</p>
+      <div class="header-content">
+        <div class="header-text">
+          <h2>{{ itemTitle }}</h2>
+          <p class="item-subtitle">{{ itemType === 'jar' ? 'JAR File' : 'Class File' }} Version History</p>
+        </div>
+        <div class="header-actions" v-if="itemType === 'jar'">
+          <el-button 
+            type="success" 
+            :icon="Download" 
+            @click="handleExportJarHistory"
+            :loading="exportLoading"
+          >
+            Export as Markdown
+          </el-button>
+        </div>
+      </div>
     </div>
 
     <div class="version-timeline" v-if="versions.length > 0">
@@ -108,10 +122,11 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Clock, OfficeBuilding, Switch, View, Key } from '@element-plus/icons-vue'
+import { Clock, OfficeBuilding, Switch, View, Key, Download } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import axios from 'axios'
 import { getVersionHistory } from '@/api/versions'
+import { exportJarHistory, downloadFile } from '@/api/export'
 
 const route = useRoute()
 const router = useRouter()
@@ -119,6 +134,7 @@ const router = useRouter()
 // 响应式数据
 const loading = ref(true)
 const versions = ref([])
+const exportLoading = ref(false)
 
 // 源码查看弹窗相关数据
 const sourceDialogVisible = ref(false)
@@ -208,6 +224,26 @@ const goToServiceDetail = (serviceId) => {
   router.push(`/services/${serviceId}`)
 }
 
+const handleExportJarHistory = async () => {
+  if (itemType.value !== 'jar') {
+    ElMessage.warning('Export is only available for JAR files')
+    return
+  }
+  
+  exportLoading.value = true
+  try {
+    const exportData = await exportJarHistory(itemName.value)
+    
+    downloadFile(exportData.content, exportData.filename, exportData.content_type)
+    ElMessage.success('JAR history exported successfully')
+  } catch (error) {
+    console.error('Failed to export JAR history:', error)
+    ElMessage.error('Failed to export JAR history')
+  } finally {
+    exportLoading.value = false
+  }
+}
+
 // 生命周期
 onMounted(() => {
   loadVersionHistory()
@@ -222,6 +258,21 @@ onMounted(() => {
 
 .history-header {
   margin-bottom: 2rem;
+}
+
+.header-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.header-text {
+  flex: 1;
+}
+
+.header-actions {
+  flex-shrink: 0;
 }
 
 .history-header h2 {
