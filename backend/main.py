@@ -957,6 +957,58 @@ async def get_service_critical_differences(service_id: int, db: Session = Depend
         "items_with_differences": len(all_critical_changes)
     }
 
+@app.get("/api/jars/{jar_name}/critical-differences")
+async def get_jar_critical_differences(jar_name: str, db: Session = Depends(get_db)):
+    """Get critical compatibility differences for a JAR"""
+    # Get unique versions of the JAR
+    versions_query = db.query(
+        JarFile.version_no,
+        func.min(JarFile.file_size).label('file_size'),
+        func.min(JarFile.last_modified).label('last_modified')
+    ).filter(
+        JarFile.jar_name == jar_name,
+        JarFile.is_third_party == False
+    ).group_by(JarFile.version_no).order_by(JarFile.version_no).all()
+    
+    if not versions_query:
+        raise HTTPException(status_code=404, detail="JAR not found")
+    
+    all_critical_changes = []
+    
+    # Analyze differences between consecutive versions
+    for i in range(1, len(versions_query)):
+        prev_version = versions_query[i-1]
+        current_version = versions_query[i]
+        
+        try:
+            diff_content = get_jar_diff_content(jar_name, prev_version.version_no, current_version.version_no, db)
+            has_critical_changes = 'Critical Compatibility Issues' in diff_content
+            
+            all_critical_changes.append({
+                'type': 'jar_differences',
+                'jar_name': jar_name,
+                'current_version': prev_version.version_no,
+                'latest_version': current_version.version_no,
+                'has_critical_changes': has_critical_changes,
+                'severity': 'high' if has_critical_changes else 'low'
+            })
+        except Exception as e:
+            all_critical_changes.append({
+                'type': 'jar_differences',
+                'jar_name': jar_name,
+                'current_version': prev_version.version_no,
+                'latest_version': current_version.version_no,
+                'error': str(e),
+                'severity': 'medium'
+            })
+    
+    return {
+        "jar_name": jar_name,
+        "critical_changes": all_critical_changes,
+        "total_items": len(versions_query),
+        "items_with_differences": len(all_critical_changes)
+    }
+
 # Export APIs
 @app.get("/api/services/{service_id}/export")
 async def export_service_details(service_id: int, db: Session = Depends(get_db)):
