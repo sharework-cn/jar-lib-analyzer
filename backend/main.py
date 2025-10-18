@@ -15,6 +15,7 @@ import hashlib
 import difflib
 import math
 import uuid
+import re
 
 # Database configuration
 DATABASE_URL = os.getenv("DATABASE_URL", "mysql+pymysql://jal:271828@172.30.80.95:32306/jal")
@@ -874,6 +875,88 @@ async def get_java_sources(
         "limit": limit
     }
 
+# Critical differences analysis API
+@app.get("/api/services/{service_id}/critical-differences")
+async def get_service_critical_differences(service_id: int, db: Session = Depends(get_db)):
+    """Get critical compatibility differences for a service"""
+    # Get service
+    service = db.query(Service).filter(Service.id == service_id).first()
+    if not service:
+        raise HTTPException(status_code=404, detail="Service not found")
+    
+    # Get JAR files for this service
+    jar_files = db.query(JarFile).filter(
+        JarFile.service_id == service_id,
+        JarFile.is_third_party == False
+    ).all()
+    
+    # Get Class files for this service
+    class_files = db.query(ClassFile).filter(
+        ClassFile.service_id == service_id
+    ).all()
+    
+    all_critical_changes = []
+    
+    # Analyze JAR differences
+    for jar in jar_files:
+        latest_version = db.query(func.max(JarFile.version_no)).filter(
+            JarFile.jar_name == jar.jar_name,
+            JarFile.is_third_party == False
+        ).scalar()
+        
+        if jar.version_no != latest_version:
+            try:
+                diff_content = get_jar_diff_content(jar.jar_name, jar.version_no, latest_version, db)
+                # Extract critical changes from diff content (simplified for API)
+                all_critical_changes.append({
+                    'type': 'jar_differences',
+                    'jar_name': jar.jar_name,
+                    'current_version': jar.version_no,
+                    'latest_version': latest_version,
+                    'has_critical_changes': 'Critical Compatibility Issues' in diff_content
+                })
+            except Exception as e:
+                all_critical_changes.append({
+                    'type': 'jar_differences',
+                    'jar_name': jar.jar_name,
+                    'current_version': jar.version_no,
+                    'latest_version': latest_version,
+                    'error': str(e)
+                })
+    
+    # Analyze Class differences
+    for class_file in class_files:
+        latest_version = db.query(func.max(ClassFile.version_no)).filter(
+            ClassFile.class_full_name == class_file.class_full_name
+        ).scalar()
+        
+        if class_file.version_no != latest_version:
+            try:
+                diff_content = get_class_diff_content(class_file.class_full_name, class_file.version_no, latest_version, db)
+                all_critical_changes.append({
+                    'type': 'class_differences',
+                    'class_name': class_file.class_full_name,
+                    'current_version': class_file.version_no,
+                    'latest_version': latest_version,
+                    'has_critical_changes': 'Critical Compatibility Issues' in diff_content
+                })
+            except Exception as e:
+                all_critical_changes.append({
+                    'type': 'class_differences',
+                    'class_name': class_file.class_full_name,
+                    'current_version': class_file.version_no,
+                    'latest_version': latest_version,
+                    'error': str(e)
+                })
+    
+    return {
+        "service_id": service_id,
+        "service_name": service.service_name,
+        "critical_changes": all_critical_changes,
+        "total_items": len(jar_files) + len(class_files),
+        "items_with_differences": len(all_critical_changes)
+    }
+
 # Export APIs
 @app.get("/api/services/{service_id}/export")
 async def export_service_details(service_id: int, db: Session = Depends(get_db)):
@@ -1180,9 +1263,21 @@ def get_jar_diff_content(jar_name, from_version, to_version, db):
         if not files_with_differences:
             return "No differences found between versions"
         
+        # Analyze critical differences
+        all_critical_changes = []
+        for class_name in files_with_differences:
+            from_content = from_files.get(class_name, "")
+            to_content = to_files.get(class_name, "")
+            critical_changes = analyze_critical_differences(from_content, to_content)
+            all_critical_changes.extend(critical_changes)
+        
         # Add summary
         summary = f"**Classes with differences:** {len(files_with_differences)}\n"
         summary += f"**Changed classes:** {', '.join(files_with_differences)}\n\n"
+        
+        # Add critical changes if any
+        if all_critical_changes:
+            summary += format_critical_changes(all_critical_changes) + "\n\n"
         
         return summary + "\n".join(diff_lines)
     except Exception as e:
@@ -1235,10 +1330,18 @@ def get_class_diff_content(class_name, from_version, to_version, db):
                 # Remove trailing newlines to prevent double spacing
                 filtered_content.append(line.rstrip('\n'))
         
+        # Analyze critical differences
+        critical_changes = analyze_critical_differences(from_content, to_content)
+        
         # Format as markdown with HTML anchor
         class_anchor_id = str(uuid.uuid4()).replace('-', '')[:16]
         result = f'<a id="{class_anchor_id}"/>\n'
         result += f"#### {class_name}\n\n"
+        
+        # Add critical changes if any
+        if critical_changes:
+            result += format_critical_changes(critical_changes) + "\n\n"
+        
         result += "```diff\n"
         result += "\n".join(filtered_content)
         result += "\n```"
@@ -1247,8 +1350,121 @@ def get_class_diff_content(class_name, from_version, to_version, db):
     except Exception as e:
         return f"Error generating diff: {str(e)}"
 
+def analyze_critical_differences(from_content, to_content):
+    """
+    Analyze critical differences that may cause compatibility issues:
+    - Removed classes
+    - Removed methods
+    - Modified method signatures
+    """
+    if not from_content or not to_content:
+        return []
+    
+    critical_changes = []
+    
+    # Parse Java source code to extract class and method definitions
+    def extract_definitions(content):
+        definitions = {
+            'classes': set(),
+            'methods': set()
+        }
+        
+        lines = content.split('\n')
+        for line in lines:
+            line = line.strip()
+            
+            # Extract class definitions (public class, private class, etc.)
+            class_match = re.match(r'^\s*(?:public|private|protected)?\s*(?:static\s+)?(?:final\s+)?class\s+(\w+)', line)
+            if class_match:
+                definitions['classes'].add(class_match.group(1))
+            
+            # Extract method definitions (public, private, protected methods)
+            method_match = re.match(r'^\s*(?:public|private|protected)\s*(?:static\s+)?(?:final\s+)?(?:synchronized\s+)?(?:abstract\s+)?(?:native\s+)?(?:strictfp\s+)?(?:<.*?>\s+)?(?:void|\w+(?:<.*?>)?)\s+(\w+)\s*\(', line)
+            if method_match:
+                # Store method signature (name + parameters)
+                method_name = method_match.group(1)
+                # Extract full method signature for comparison
+                method_sig_match = re.search(r'(\w+)\s*\([^)]*\)', line)
+                if method_sig_match:
+                    definitions['methods'].add(method_sig_match.group(0))
+        
+        return definitions
+    
+    from_defs = extract_definitions(from_content)
+    to_defs = extract_definitions(to_content)
+    
+    # Check for removed classes
+    removed_classes = from_defs['classes'] - to_defs['classes']
+    for class_name in removed_classes:
+        critical_changes.append({
+            'type': 'removed_class',
+            'description': f"Class '{class_name}' was removed",
+            'severity': 'high'
+        })
+    
+    # Check for removed methods
+    removed_methods = from_defs['methods'] - to_defs['methods']
+    for method_sig in removed_methods:
+        critical_changes.append({
+            'type': 'removed_method',
+            'description': f"Method '{method_sig}' was removed",
+            'severity': 'high'
+        })
+    
+    # Check for modified method signatures using diff
+    from_lines = from_content.splitlines()
+    to_lines = to_content.splitlines()
+    
+    diff = difflib.unified_diff(from_lines, to_lines, lineterm="")
+    diff_lines = list(diff)[2:]  # Skip file headers
+    
+    for line in diff_lines:
+        if line.startswith('-') and not line.startswith('---'):
+            # Check if this is a method definition line
+            method_match = re.match(r'^-\s*(?:public|private|protected)\s*(?:static\s+)?(?:final\s+)?(?:synchronized\s+)?(?:abstract\s+)?(?:native\s+)?(?:strictfp\s+)?(?:<.*?>\s+)?(?:void|\w+(?:<.*?>)?)\s+(\w+)\s*\(', line[1:].strip())
+            if method_match:
+                method_name = method_match.group(1)
+                # Check if there's a corresponding + line (modified method)
+                for next_line in diff_lines[diff_lines.index(line)+1:]:
+                    if next_line.startswith('+') and not next_line.startswith('+++'):
+                        next_method_match = re.match(r'^\+\s*(?:public|private|protected)\s*(?:static\s+)?(?:final\s+)?(?:synchronized\s+)?(?:abstract\s+)?(?:native\s+)?(?:strictfp\s+)?(?:<.*?>\s+)?(?:void|\w+(?:<.*?>)?)\s+(\w+)\s*\(', next_line[1:].strip())
+                        if next_method_match and next_method_match.group(1) == method_name:
+                            critical_changes.append({
+                                'type': 'modified_method_signature',
+                                'description': f"Method '{method_name}' signature was modified",
+                                'severity': 'high',
+                                'details': f"From: {line[1:].strip()}\nTo: {next_line[1:].strip()}"
+                            })
+                            break
+    
+    return critical_changes
+
+def format_critical_changes(critical_changes):
+    """Format critical changes for display"""
+    if not critical_changes:
+        return "No critical compatibility issues found."
+    
+    result = []
+    result.append("## ⚠️ Critical Compatibility Issues")
+    result.append("")
+    
+    for change in critical_changes:
+        severity_icon = "🔴" if change['severity'] == 'high' else "🟡"
+        result.append(f"### {severity_icon} {change['type'].replace('_', ' ').title()}")
+        result.append("")
+        result.append(f"**Issue:** {change['description']}")
+        result.append("")
+        
+        if 'details' in change:
+            result.append("**Details:**")
+            result.append("```diff")
+            result.append(change['details'])
+            result.append("```")
+            result.append("")
+    
+    return "\n".join(result)
+
 def format_file_size(bytes):
-    """Format file size in human readable format"""
     if not bytes:
         return "0 B"
     k = 1024
