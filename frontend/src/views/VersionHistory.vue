@@ -154,8 +154,8 @@ const goToDiff = (fromVersion, toVersion) => {
     // JAR文件直接跳转到单窗格视图
     router.push(`/diff-unified/${itemType.value}/${encodeURIComponent(itemName.value)}/${fromVersion}/${toVersion}`)
   } else {
-    // Class文件跳转到双窗格视图
-    router.push(`/diff/${itemType.value}/${encodeURIComponent(itemName.value)}/${fromVersion}/${toVersion}`)
+    // Class文件也跳转到单窗格视图
+    router.push(`/diff-unified/${itemType.value}/${encodeURIComponent(itemName.value)}/${fromVersion}/${toVersion}`)
   }
 }
 
