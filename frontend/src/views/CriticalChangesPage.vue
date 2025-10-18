@@ -61,74 +61,106 @@
         </el-card>
       </div>
 
-      <div class="changes-list">
-        <div 
-          v-for="(change, index) in criticalChanges" 
-          :key="index"
-          class="change-item"
-        >
-          <el-card class="change-card" :class="change.severity">
-            <template #header>
-              <div class="change-header">
-                <div class="change-type">
-                  <el-icon v-if="change.type === 'jar_differences'"><Box /></el-icon>
-                  <el-icon v-else-if="change.type === 'class_differences'"><Document /></el-icon>
+      <!-- Critical Changes Table -->
+      <div class="changes-table">
+        <el-card>
+          <template #header>
+            <div class="card-header">
+              <el-icon><Warning /></el-icon>
+              <span>Critical Changes Analysis</span>
+            </div>
+          </template>
+          
+          <el-table 
+            :data="criticalChanges" 
+            stripe 
+            border
+            style="width: 100%"
+            :row-class-name="getRowClassName"
+          >
+            <el-table-column prop="type" label="Type" width="120" align="center">
+              <template #default="{ row }">
+                <div class="type-cell">
+                  <el-icon v-if="row.type === 'jar_differences'"><Box /></el-icon>
+                  <el-icon v-else-if="row.type === 'class_differences'"><Document /></el-icon>
                   <el-icon v-else><Warning /></el-icon>
-                  <span class="type-label">{{ getTypeLabel(change.type) }}</span>
+                  <span>{{ getTypeLabel(row.type) }}</span>
                 </div>
-                <div class="change-severity">
-                  <el-tag 
-                    :type="change.severity === 'high' ? 'danger' : 'warning'"
-                    size="small"
-                  >
-                    {{ change.severity === 'high' ? 'High Risk' : 'Medium Risk' }}
-                  </el-tag>
-                </div>
-              </div>
-            </template>
+              </template>
+            </el-table-column>
             
-            <div class="change-content">
-              <div class="change-info">
-                <div class="change-name">
-                  <strong>{{ getChangeName(change) }}</strong>
+            <el-table-column prop="name" label="Name" min-width="200">
+              <template #default="{ row }">
+                <div class="name-cell">
+                  <strong>{{ getChangeName(row) }}</strong>
                 </div>
-                <div class="change-versions">
-                  <el-tag size="small" type="info">
-                    Version {{ change.current_version }} → {{ change.latest_version }}
-                  </el-tag>
-                </div>
-                <div class="change-status">
-                  <el-tag 
-                    v-if="change.has_critical_changes" 
-                    type="danger" 
-                    size="small"
-                  >
-                    <el-icon><Warning /></el-icon>
-                    Critical Changes Detected
-                  </el-tag>
-                  <el-tag 
-                    v-else 
-                    type="success" 
-                    size="small"
-                  >
-                    <el-icon><Check /></el-icon>
-                    No Critical Changes
-                  </el-tag>
-                </div>
-              </div>
-              
-              <div class="change-actions" v-if="change.has_critical_changes">
+              </template>
+            </el-table-column>
+            
+            <el-table-column prop="versions" label="Versions" width="150" align="center">
+              <template #default="{ row }">
+                <el-tag size="small" type="info">
+                  {{ row.current_version }} → {{ row.latest_version }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            
+            <el-table-column prop="severity" label="Severity" width="120" align="center">
+              <template #default="{ row }">
+                <el-tag 
+                  :type="row.severity === 'high' ? 'danger' : 'warning'"
+                  size="small"
+                >
+                  {{ row.severity === 'high' ? 'High Risk' : 'Medium Risk' }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            
+            <el-table-column prop="status" label="Status" width="180" align="center">
+              <template #default="{ row }">
+                <el-tag 
+                  v-if="row.has_critical_changes" 
+                  type="danger" 
+                  size="small"
+                >
+                  <el-icon><Warning /></el-icon>
+                  Critical Changes Detected
+                </el-tag>
+                <el-tag 
+                  v-else 
+                  type="success" 
+                  size="small"
+                >
+                  <el-icon><Check /></el-icon>
+                  No Critical Changes
+                </el-tag>
+              </template>
+            </el-table-column>
+            
+            <el-table-column prop="critical_changes_count" label="Changes Count" width="120" align="center">
+              <template #default="{ row }">
+                <span v-if="row.has_critical_changes" class="changes-count">
+                  {{ row.critical_changes ? row.critical_changes.length : 0 }}
+                </span>
+                <span v-else class="no-changes">-</span>
+              </template>
+            </el-table-column>
+            
+            <el-table-column label="Actions" width="120" align="center">
+              <template #default="{ row }">
                 <el-button 
+                  v-if="row.has_critical_changes"
                   type="primary" 
                   size="small"
-                  @click="viewDetails(change)"
+                  @click="viewDetails(row)"
                 >
                   View Details
                 </el-button>
-              </div>
-            </div>
-          </el-card>
-        </div>
+                <span v-else class="no-action">-</span>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-card>
       </div>
     </div>
 
@@ -309,6 +341,13 @@ const getChangeTitle = (change) => {
   return change.type.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())
 }
 
+const getRowClassName = ({ row }) => {
+  if (row.has_critical_changes) {
+    return 'critical-row'
+  }
+  return 'normal-row'
+}
+
 const viewDetails = (change) => {
   selectedChange.value = change
   detailsDialogVisible.value = true
@@ -429,66 +468,47 @@ onMounted(() => {
   margin-top: 5px;
 }
 
-.changes-list {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
+.changes-table {
+  margin-top: 20px;
 }
 
-.change-card {
-  transition: all 0.3s ease;
-}
-
-.change-card:hover {
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-}
-
-.change-card.high {
-  border-left: 4px solid #f56c6c;
-}
-
-.change-card.medium {
-  border-left: 4px solid #e6a23c;
-}
-
-.change-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.change-type {
+.type-cell {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  justify-content: center;
 }
 
-.type-label {
+.name-cell {
   font-weight: 600;
 }
 
-.change-content {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+.changes-count {
+  font-weight: bold;
+  color: #f56c6c;
 }
 
-.change-info {
-  flex: 1;
+.no-changes,
+.no-action {
+  color: #909399;
+  font-style: italic;
 }
 
-.change-name {
-  font-size: 16px;
-  margin-bottom: 8px;
+/* Table row styling */
+:deep(.el-table .critical-row) {
+  background-color: #fef0f0;
 }
 
-.change-versions,
-.change-status {
-  margin-bottom: 5px;
+:deep(.el-table .critical-row:hover > td) {
+  background-color: #fde2e2 !important;
 }
 
-.change-actions {
-  flex-shrink: 0;
+:deep(.el-table .normal-row) {
+  background-color: #f0f9ff;
+}
+
+:deep(.el-table .normal-row:hover > td) {
+  background-color: #e1f5fe !important;
 }
 
 .details-header {
