@@ -18,6 +18,14 @@
       </div>
       <div class="header-actions">
         <el-button 
+          type="warning" 
+          :icon="Warning" 
+          @click="viewCriticalChanges"
+          :loading="criticalChangesLoading"
+        >
+          View Critical Changes
+        </el-button>
+        <el-button 
           type="success" 
           :icon="Download" 
           @click="handleExportServiceDetails"
@@ -149,7 +157,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, Clock, Box, Document, Download } from '@element-plus/icons-vue'
+import { ArrowLeft, Clock, Box, Document, Download, Warning } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { getServiceDetail } from '@/api/services'
 import { exportServiceDetails, downloadFile } from '@/api/export'
@@ -161,6 +169,7 @@ const router = useRouter()
 const loading = ref(true)
 const serviceData = ref(null)
 const exportLoading = ref(false)
+const criticalChangesLoading = ref(false)
 
 // Computed properties
 const serviceName = computed(() => {
@@ -237,6 +246,18 @@ const viewVersionDiff = (row, type) => {
   } else if (type === 'class') {
     router.push(`/diff-unified/class/${row.class_full_name}/${currentVersion}/${latestVersion}`)
   }
+}
+
+const viewCriticalChanges = () => {
+  const serviceId = route.params.id
+  router.push({
+    path: '/critical-changes',
+    query: {
+      type: 'service',
+      id: serviceId,
+      name: serviceData.value?.service_name
+    }
+  })
 }
 
 const handleExportServiceDetails = async () => {

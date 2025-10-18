@@ -8,6 +8,14 @@
         </div>
         <div class="header-actions" v-if="itemType === 'jar'">
           <el-button 
+            type="warning" 
+            :icon="Warning" 
+            @click="viewCriticalChanges"
+            :loading="criticalChangesLoading"
+          >
+            View Critical Changes
+          </el-button>
+          <el-button 
             type="success" 
             :icon="Download" 
             @click="handleExportJarHistory"
@@ -122,7 +130,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Clock, OfficeBuilding, Switch, View, Key, Download } from '@element-plus/icons-vue'
+import { Clock, OfficeBuilding, Switch, View, Key, Download, Warning } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import axios from 'axios'
 import { getVersionHistory } from '@/api/versions'
@@ -135,6 +143,7 @@ const router = useRouter()
 const loading = ref(true)
 const versions = ref([])
 const exportLoading = ref(false)
+const criticalChangesLoading = ref(false)
 
 // 源码查看弹窗相关数据
 const sourceDialogVisible = ref(false)
@@ -222,6 +231,20 @@ const viewSources = async (versionNo) => {
 
 const goToServiceDetail = (serviceId) => {
   router.push(`/services/${serviceId}`)
+}
+
+const viewCriticalChanges = () => {
+  if (itemType.value === 'jar') {
+    router.push({
+      path: '/critical-changes',
+      query: {
+        type: 'jar',
+        name: itemName.value
+      }
+    })
+  } else {
+    ElMessage.warning('Critical changes analysis is only available for JAR files')
+  }
 }
 
 const handleExportJarHistory = async () => {

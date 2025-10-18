@@ -15,6 +15,7 @@ import JarSourcesPage from './views/JarSourcesPage.vue'
 import JarsPage from './views/JarsPage.vue'
 import JavaSourcesPage from './views/JavaSourcesPage.vue'
 import JavaSourceDetailsPage from './views/JavaSourceDetailsPage.vue'
+import CriticalChangesPage from './views/CriticalChangesPage.vue'
 
 const routes = [
   { path: '/', component: SearchPage },
@@ -28,7 +29,8 @@ const routes = [
   { path: '/diff/:type/:name/:fromVersion/:toVersion', component: DiffView },
   { path: '/diff/jar-file/:jarName/:fromVersion/:toVersion', component: JarFileDiff },
   { path: '/diff/class-file/:className/:fromVersion/:toVersion', component: JarFileDiff },
-  { path: '/diff-unified/:type/:name/:fromVersion/:toVersion', component: JarUnifiedDiff }
+  { path: '/diff-unified/:type/:name/:fromVersion/:toVersion', component: JarUnifiedDiff },
+  { path: '/critical-changes', component: CriticalChangesPage }
 ]
 
 const router = createRouter({
