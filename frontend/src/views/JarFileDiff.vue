@@ -90,7 +90,7 @@ const loadFileDiff = async () => {
   try {
     console.log('Loading file diff:', fileName.value, fromVersion.value, toVersion.value, classFullName.value)
     
-    // 将类名转换为文件路径格式
+    // 将类名转换为文件路径格式（仅用于JAR文件）
     const filePath = classFullName.value.replace(/\./g, '/') + '.java'
     
     // 根据文件类型获取差异数据
@@ -118,7 +118,16 @@ const loadFileDiff = async () => {
       fromVersion.value, 
       toVersion.value
     )
-    const fileChange = summaryData.file_changes?.find(f => f.file_path === filePath)
+    
+    // 根据文件类型查找对应的文件变更信息
+    let fileChange
+    if (isJarFile.value) {
+      // JAR文件：使用filePath格式查找
+      fileChange = summaryData.file_changes?.find(f => f.file_path === filePath)
+    } else {
+      // Class文件：使用class_full_name查找
+      fileChange = summaryData.file_changes?.find(f => f.class_full_name === classFullName.value)
+    }
     
     if (fileChange) {
       fileStats.value = {

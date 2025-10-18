@@ -126,7 +126,7 @@ const viewSource = async (version) => {
         // Class文件：通过Class源码API获取
         apiUrl = `/api/classes/${encodeURIComponent(props.itemName)}/sources/${version}/content`
         const response = await axios.get(apiUrl, {
-          params: { file_path: props.filePath.replace(/\./g, '/') + '.java' }
+          params: { class_full_name: props.filePath }
         })
         selectedFileContent.value = response.data.content || ''
       }

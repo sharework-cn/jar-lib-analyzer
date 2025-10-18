@@ -691,6 +691,33 @@ async def get_jar_source_file_content(
     
     return {"content": source_file.file_content or ""}
 
+@app.get("/api/classes/{class_name}/sources/{version_no}/content")
+async def get_class_source_file_content(
+    class_name: str, 
+    version_no: int, 
+    class_full_name: str = Query(..., description="Class full name"),
+    db: Session = Depends(get_db)
+):
+    """Get specific Class source file content"""
+    # 通过Class文件找到对应的Java源码文件版本
+    class_file = db.query(ClassFile).filter(
+        ClassFile.class_full_name == class_name,
+        ClassFile.version_no == version_no
+    ).first()
+    
+    if not class_file or not class_file.java_source_file_version_id:
+        raise HTTPException(status_code=404, detail="Class file or source not found")
+    
+    # 获取Java源码文件版本
+    source_file = db.query(JavaSourceFileVersion).filter(
+        JavaSourceFileVersion.id == class_file.java_source_file_version_id
+    ).first()
+    
+    if not source_file:
+        raise HTTPException(status_code=404, detail="Source file not found")
+    
+    return {"content": source_file.file_content or ""}
+
 @app.get("/api/jars/{jar_name}/versions", response_model=VersionHistory)
 async def get_jar_versions(jar_name: str):
     db = SessionLocal()
